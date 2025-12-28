@@ -1,204 +1,229 @@
 import streamlit as st
-import time
 import streamlit.components.v1 as components
+import time
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="Simulador SV Urgencias",
+    page_title="Simulador SV",
     page_icon="🏥",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed" # Inicia con el panel cerrado (Modo Monitor)
 )
 
-# --- 2. CARGA SEGURA DE DATOS (SOLO SECRETS) ---
-def cargar_ritmos_seguros():
-    # Verificación estricta: Si no está en secrets, detiene la app.
+# --- 2. FUNCIÓN DE REPARACIÓN DE ENLACES (CRÍTICO) ---
+def obtener_url_embed(url_original):
+    """
+    Convierte el enlace de 'Watch' (Página web) a 'Player' (Video incrustado)
+    para que ScreenPal funcione dentro de la app sin bordes ni menús.
+    """
+    if "screenpal.com/watch/" in url_original:
+        # Extraemos el ID del video (lo que está después de /watch/)
+        video_id = url_original.split("/")[-1].strip()
+        # Construimos la URL del reproductor puro
+        return f"https://screenpal.com/player/{video_id}?width=100%&height=100%&autoplay=1&controls=0"
+    return url_original
+
+# --- 3. CARGA DE DATOS ---
+def cargar_ritmos():
     if "ritmos" not in st.secrets:
-        st.error("⛔ BASE DE DATOS NO ENCONTRADA")
-        st.info("Configura la sección [ritmos] en los Secrets de Streamlit Cloud.")
-        st.stop() # Detiene la ejecución para no mostrar nada más
+        st.error("⛔ ERROR: No se detectaron ritmos en Secrets.")
+        st.stop()
     return st.secrets["ritmos"]
 
-# Cargamos la DB solo desde la nube
-RITMOS_DB = cargar_ritmos_seguros()
+RITMOS_DB = cargar_ritmos()
 
-# --- 3. ESTILOS CSS (MODO MONITOR OSCURO) ---
+# --- 4. CSS: DISEÑO DE MONITOR MÉDICO ---
 st.markdown("""
 <style>
-    /* Fondo negro clínico */
-    .stApp { background-color: #000000; color: white; }
-
-    /* Contenedor del Panel de Control (Gris Oscuro) */
-    .control-box {
+    /* Fondo Negro Clínico */
+    .stApp { background-color: #000000; color: white; font-family: 'Consolas', 'Segoe UI', monospace; }
+    
+    /* Ocultar elementos de Streamlit que sobran */
+    #MainMenu, footer, header {visibility: hidden;}
+    
+    /* ESTILOS DE LA BARRA LATERAL (DOCENTE) */
+    section[data-testid="stSidebar"] {
         background-color: #1a1a1a;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #333;
-        margin-bottom: 20px;
-    }
-
-    /* Botón de Aplicar (Rojo Urgencias) */
-    div.stButton > button:first-child {
-        background-color: #d32f2f;
-        color: white;
-        height: 3em;
-        font-size: 18px;
-        font-weight: bold;
-        border: none;
-        width: 100%;
-    }
-    div.stButton > button:hover { background-color: #b71c1c; color: white; }
-
-    /* Cajas de Valores del Monitor */
-    .monitor-box {
-        background-color: #000000;
-        border-left: 6px solid;
-        padding: 10px;
-        margin-bottom: 8px;
+        border-right: 1px solid #333;
     }
     
-    /* Colores Específicos */
-    .c-hr { border-color: #00ff00; color: #00ff00; }
-    .c-spo2 { border-color: #ffff00; color: #ffff00; }
-    .c-bp { border-color: #ff3333; color: #ff3333; }
-    .c-rr { border-color: #00ffff; color: #00ffff; }
+    /* ESTILOS DEL MONITOR (ESTUDIANTE) */
+    .monitor-container {
+        display: flex;
+        gap: 10px;
+        margin-top: -50px; /* Subir todo para aprovechar espacio */
+    }
+    
+    /* Columna Izquierda: Números */
+    .numbers-col {
+        width: 25%;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    /* Columna Derecha: Video */
+    .video-col {
+        width: 75%;
+        border: 2px solid #333;
+        background: #000;
+        height: 80vh; /* Altura del monitor */
+        position: relative;
+    }
 
-    /* Tipografía Digital */
-    .val-big { font-family: 'Consolas', monospace; font-size: 75px; font-weight: bold; line-height: 0.9; }
-    .lbl-small { font-size: 14px; opacity: 0.8; text-transform: uppercase; }
+    /* Cajas de Signos Vitales */
+    .vital-box {
+        background: #080808;
+        padding: 10px;
+        border-left: 8px solid;
+        height: 18vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        position: relative;
+    }
 
-    /* Limpieza de interfaz */
-    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+    /* Colores */
+    .hr { border-color: #00ff00; color: #00ff00; }
+    .spo2 { border-color: #ffff00; color: #ffff00; }
+    .bp { border-color: #ff3333; color: #ff3333; }
+    .rr { border-color: #00ffff; color: #00ffff; }
+
+    /* Tipografía */
+    .label { font-size: 14px; opacity: 0.7; text-transform: uppercase; position: absolute; top: 5px; left: 10px; }
+    .value { font-size: 70px; font-weight: bold; text-align: right; line-height: 1; text-shadow: 0 0 10px currentColor; }
+    .sub { font-size: 20px; text-align: right; opacity: 0.8; margin-top: -5px; }
+
 </style>
 """, unsafe_allow_html=True)
 
-# --- 4. ESTADO DE LA SESIÓN ---
-if "monitor" not in st.session_state:
-    # Valores iniciales por defecto (fisiológicos)
-    primero = list(RITMOS_DB.keys())[0]
-    st.session_state.monitor = {
-        "ritmo": primero,
+# --- 5. ESTADO DE LA SESIÓN ---
+if "params" not in st.session_state:
+    st.session_state.params = {
+        "ritmo": list(RITMOS_DB.keys())[0],
         "hr": 80, "spo2": 98, "pas": 120, "pad": 80, "rr": 16, "vol": 0.0
     }
 
-# --- 5. BARRA LATERAL (CONTROL DE VISIBILIDAD) ---
+# ==========================================
+# ZONA 1: PANEL DE CONTROL DOCENTE (SIDEBAR)
+# ==========================================
 with st.sidebar:
-    st.title("🎛️ Control Maestro")
+    st.markdown("## 🎛️ Mando Docente")
+    st.info("Oculta esta barra (❌) para mostrar solo el monitor.")
+    
+    # 1. Ritmo
+    sel_ritmo = st.selectbox("Seleccionar Ritmo", list(RITMOS_DB.keys()))
+    
     st.markdown("---")
-    # Este switch permite ocultar el panel para que los alumnos solo vean el monitor
-    mostrar_panel = st.toggle("🛠️ Mostrar Panel de Ajustes", value=True)
     
-    st.markdown("Use este interruptor para ocultar los controles cuando proyecte la pantalla.")
-
-# --- 6. PANEL DE CONTROL (AJUSTES RÁPIDOS) ---
-# Solo se dibuja si el interruptor está activado
-if mostrar_panel:
-    st.markdown("<div class='control-box'><h3>⚡ Ajustes Rápidos</h3>", unsafe_allow_html=True)
+    # 2. Signos Vitales (Sliders compactos)
+    p = st.session_state.params
+    v_hr = st.slider("FC (lpm)", 0, 300, p["hr"])
+    v_spo2 = st.slider("SpO2 (%)", 0, 100, p["spo2"])
     
-    # 1. Selector de Ritmo (Cargado desde Secrets)
-    sel_ritmo = st.selectbox("Seleccionar Ritmo (DII)", options=list(RITMOS_DB.keys()))
+    c1, c2 = st.columns(2)
+    with c1: v_pas = st.number_input("PAS", 0, 300, p["pas"])
+    with c2: v_pad = st.number_input("PAD", 0, 200, p["pad"])
     
-    # 2. Sliders de Signos Vitales
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        v_hr = st.slider("FC (lpm)", 0, 300, st.session_state.monitor["hr"])
-        v_spo2 = st.slider("SpO2 (%)", 0, 100, st.session_state.monitor["spo2"])
-    with c2:
-        v_pas = st.slider("P. Sistólica", 0, 300, st.session_state.monitor["pas"])
-        v_pad = st.slider("P. Diastólica", 0, 200, st.session_state.monitor["pad"])
-    with c3:
-        v_rr = st.slider("F. Respiratoria", 0, 60, st.session_state.monitor["rr"])
-        v_vol = st.slider("Volumen Audio", 0.0, 1.0, st.session_state.monitor["vol"])
-
-    # 3. Botón de Acción
-    if st.button("APLICAR NUEVA CONFIGURACIÓN"):
-        st.session_state.monitor = {
+    v_rr = st.slider("FR (rpm)", 0, 60, p["rr"])
+    v_vol = st.slider("🔈 Volumen", 0.0, 1.0, p["vol"])
+    
+    # Botón de actualización
+    if st.button("🔴 APLICAR CAMBIOS", type="primary", use_container_width=True):
+        st.session_state.params = {
             "ritmo": sel_ritmo,
-            "hr": v_hr, "spo2": v_spo2, 
-            "pas": v_pas, "pad": v_pad, 
+            "hr": v_hr, "spo2": v_spo2,
+            "pas": v_pas, "pad": v_pad,
             "rr": v_rr, "vol": v_vol
         }
-        st.rerun() # Recarga inmediata para mostrar cambios
-        
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.rerun()
 
-# --- 7. VISUALIZACIÓN DEL MONITOR (SALIDA) ---
-# Separador visual si el panel está abierto
-if mostrar_panel:
-    st.divider()
+# ==========================================
+# ZONA 2: MONITOR ESTUDIANTE (MAIN)
+# ==========================================
 
-d = st.session_state.monitor
+# Variables de renderizado
+d = st.session_state.params
 pam = int((d['pas'] + 2*d['pad']) / 3)
 
-# Layout: Datos Numéricos (Izquierda) | Trazado ECG (Derecha)
-col_mon_izq, col_mon_der = st.columns([1, 3])
+# Maquetación manual HTML/CSS para control total del diseño
+c_izq, c_der = st.columns([1, 3.5])
 
-with col_mon_izq:
-    # Frecuencia Cardíaca
+with c_izq:
+    # 1. FC
     st.markdown(f"""
-    <div class="monitor-box c-hr">
-        <div class="lbl-small">LPM</div>
-        <div class="val-big">{d['hr']}</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Saturación
-    st.markdown(f"""
-    <div class="monitor-box c-spo2">
-        <div class="lbl-small">SpO2 %</div>
-        <div class="val-big">{d['spo2']}</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Presión Arterial
-    st.markdown(f"""
-    <div class="monitor-box c-bp">
-        <div class="lbl-small">PANI mmHg (PAM {pam})</div>
-        <div class="val-big" style="font-size: 55px;">{d['pas']}/{d['pad']}</div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Respiración / CO2
-    st.markdown(f"""
-    <div class="monitor-box c-rr">
-        <div class="lbl-small">RR rpm</div>
-        <div class="val-big">{d['rr']}</div>
+    <div class="vital-box hr">
+        <div class="label">FC / ECG</div>
+        <div class="value">{d['hr']}</div>
+        <div class="sub">lpm</div>
     </div>
     """, unsafe_allow_html=True)
 
-with col_mon_der:
-    # Video desde URL Segura
-    url = RITMOS_DB.get(d['ritmo'])
+    # 2. SpO2
+    st.markdown(f"""
+    <div class="vital-box spo2">
+        <div class="label">SpO2</div>
+        <div class="value">{d['spo2']}</div>
+        <div class="sub">%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 3. PA
+    st.markdown(f"""
+    <div class="vital-box bp">
+        <div class="label">PANI</div>
+        <div class="value" style="font-size: 50px;">{d['pas']}/{d['pad']}</div>
+        <div class="sub">PAM: {pam}</div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    if url:
-        st.video(url, autoplay=True, loop=True)
+    # 4. RR
+    st.markdown(f"""
+    <div class="vital-box rr">
+        <div class="label">RESP</div>
+        <div class="value">{d['rr']}</div>
+        <div class="sub">rpm</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c_der:
+    # REPRODUCCIÓN DE VIDEO (IFRAME CORREGIDO)
+    raw_url = RITMOS_DB.get(d['ritmo'])
+    
+    if raw_url:
+        # Convertimos la URL de 'watch' a 'player' automáticamente
+        embed_url = obtener_url_embed(raw_url)
+        
+        # Usamos iframe con CSS personalizado para quitar bordes
+        components.html(
+            f"""
+            <body style="margin:0; padding:0; background-color:black; overflow:hidden;">
+                <iframe src="{embed_url}" 
+                        style="width:100%; height:100vh; border:none;" 
+                        allow="autoplay; fullscreen"
+                        scrolling="no">
+                </iframe>
+            </body>
+            """,
+            height=650, # Altura ajustada a la pantalla
+            scrolling=False
+        )
     else:
-        st.error(f"Error: URL no encontrada para {d['ritmo']}")
+        st.error("Enlace no encontrado")
 
-# --- 8. AUDIO SINTÉTICO (JS INJECTION) ---
+# --- AUDIO (JS) ---
 if d['hr'] > 0 and d['vol'] > 0:
-    intervalo_ms = (60 / d['hr']) * 1000
-    
-    # Script optimizado para mantener el ritmo constante
-    js = f"""
+    intervalo = (60 / d['hr']) * 1000
+    components.html(f"""
     <script>
-        var ac = new (window.AudioContext || window.webkitAudioContext)();
-        function beep() {{
-            if (ac.state === 'suspended') ac.resume();
-            var osc = ac.createOscillator();
-            var gn = ac.createGain();
-            osc.connect(gn);
-            gn.connect(ac.destination);
-            osc.type = 'square';
-            osc.frequency.value = 750;
-            gn.gain.value = {d['vol']};
-            osc.start();
-            setTimeout(() => osc.stop(), 150);
-        }}
-        // Limpia timer anterior para evitar superposiciones
-        if(window.sndTimer) clearInterval(window.sndTimer);
-        window.sndTimer = setInterval(beep, {intervalo_ms});
+    var ac = new (window.AudioContext || window.webkitAudioContext)();
+    function beep() {{
+        if (ac.state === 'suspended') ac.resume();
+        var o=ac.createOscillator(); var g=ac.createGain();
+        o.connect(g); g.connect(ac.destination);
+        o.type='square'; o.frequency.value=750; g.gain.value={d['vol']};
+        o.start(); setTimeout(()=>o.stop(),150);
+    }}
+    clearInterval(window.t); window.t = setInterval(beep, {intervalo});
     </script>
-    """
-    components.html(js, height=0, width=0)
-
+    """, height=0, width=0)
