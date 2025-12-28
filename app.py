@@ -1,296 +1,204 @@
 import streamlit as st
 import time
-import random
-import string
+import streamlit.components.v1 as components
 
-# --- CONFIGURACIÓN INICIAL ---
+# --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
     page_title="Simulador SV Urgencias",
     page_icon="🏥",
     layout="wide",
-    initial_sidebar_state="collapsed" # Inicia cerrado para privacidad
+    initial_sidebar_state="expanded"
 )
 
-# --- ESTILOS CSS AVANZADOS (INTERFAZ MÉDICA) ---
+# --- 2. CARGA SEGURA DE DATOS (SOLO SECRETS) ---
+def cargar_ritmos_seguros():
+    # Verificación estricta: Si no está en secrets, detiene la app.
+    if "ritmos" not in st.secrets:
+        st.error("⛔ BASE DE DATOS NO ENCONTRADA")
+        st.info("Configura la sección [ritmos] en los Secrets de Streamlit Cloud.")
+        st.stop() # Detiene la ejecución para no mostrar nada más
+    return st.secrets["ritmos"]
+
+# Cargamos la DB solo desde la nube
+RITMOS_DB = cargar_ritmos_seguros()
+
+# --- 3. ESTILOS CSS (MODO MONITOR OSCURO) ---
 st.markdown("""
 <style>
-    /* 1. ESTILOS GENERALES Y LOGIN */
-    .stApp {
-        font-family: 'Segoe UI', sans-serif;
-    }
-    
-    /* Ocultar elementos nativos que estorban */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    /* Estilo del Login (Fondo claro forzado para legibilidad) */
-    .login-container {
-        max-width: 450px;
-        margin: 100px auto;
-        padding: 40px;
-        background-color: #f0f2f6; /* Gris muy claro */
-        border-radius: 12px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        text-align: center;
-        color: #31333F;
-    }
-    
-    /* 2. ESTILOS DEL MODO MONITOR (SOLO SE ACTIVAN AL ENTRAR) */
-    .monitor-bg {
-        background-color: #000000 !important;
-        color: white;
-    }
-    
-    /* Cajas de Signos Vitales (Diseño Phillips/GE) */
-    .vital-box {
-        background-color: #050505;
+    /* Fondo negro clínico */
+    .stApp { background-color: #000000; color: white; }
+
+    /* Contenedor del Panel de Control (Gris Oscuro) */
+    .control-box {
+        background-color: #1a1a1a;
+        padding: 20px;
+        border-radius: 10px;
         border: 1px solid #333;
-        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    /* Botón de Aplicar (Rojo Urgencias) */
+    div.stButton > button:first-child {
+        background-color: #d32f2f;
+        color: white;
+        height: 3em;
+        font-size: 18px;
+        font-weight: bold;
+        border: none;
+        width: 100%;
+    }
+    div.stButton > button:hover { background-color: #b71c1c; color: white; }
+
+    /* Cajas de Valores del Monitor */
+    .monitor-box {
+        background-color: #000000;
+        border-left: 6px solid;
         padding: 10px;
         margin-bottom: 8px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        height: 140px;
-        position: relative;
     }
     
-    /* Indicadores de color lateral */
-    .border-hr { border-left: 6px solid #00ff00; }
-    .border-spo2 { border-left: 6px solid #ffff00; }
-    .border-bp { border-left: 6px solid #ff3333; }
-    .border-rr { border-left: 6px solid #00ffff; }
+    /* Colores Específicos */
+    .c-hr { border-color: #00ff00; color: #00ff00; }
+    .c-spo2 { border-color: #ffff00; color: #ffff00; }
+    .c-bp { border-color: #ff3333; color: #ff3333; }
+    .c-rr { border-color: #00ffff; color: #00ffff; }
 
-    /* Tipografía de Monitor */
-    .vital-label { 
-        font-size: 16px; 
-        font-weight: bold; 
-        opacity: 0.9; 
-        position: absolute; 
-        top: 10px; 
-        left: 15px;
-    }
-    
-    .vital-value { 
-        font-family: 'Consolas', 'Courier New', monospace; 
-        font-size: 80px; 
-        font-weight: bold; 
-        text-align: right;
-        padding-right: 15px;
-        line-height: 1;
-        text-shadow: 0 0 5px currentColor; /* Efecto Neón */
-    }
-    
-    .vital-sub {
-        font-family: 'Consolas', 'Courier New', monospace;
-        font-size: 20px;
-        position: absolute;
-        bottom: 10px;
-        left: 15px;
-        opacity: 0.8;
-    }
+    /* Tipografía Digital */
+    .val-big { font-family: 'Consolas', monospace; font-size: 75px; font-weight: bold; line-height: 0.9; }
+    .lbl-small { font-size: 14px; opacity: 0.8; text-transform: uppercase; }
 
-    /* Colores de texto */
-    .txt-green { color: #00ff00; }
-    .txt-yellow { color: #ffff00; }
-    .txt-red { color: #ff3333; }
-    .txt-cyan { color: #00ffff; }
-
+    /* Limpieza de interfaz */
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- LÓGICA DE SECRETS ---
-def get_secrets():
-    # Fallback para pruebas si no hay secrets configurados
-    if "credentials" not in st.secrets:
-        return {"username":"admin", "password":"123"}, {}
-    return st.secrets["credentials"], st.secrets["ritmos"]
-
-creds, ritmos_db = get_secrets()
-
-# --- ESTADO DE LA SESIÓN ---
-if "auth" not in st.session_state:
-    st.session_state.auth = False
-if "monitor_data" not in st.session_state:
-    # Datos que se muestran EN EL MONITOR (Alumnos)
-    st.session_state.monitor_data = {
-        "ritmo": list(ritmos_db.keys())[0] if ritmos_db else "Sinusal",
+# --- 4. ESTADO DE LA SESIÓN ---
+if "monitor" not in st.session_state:
+    # Valores iniciales por defecto (fisiológicos)
+    primero = list(RITMOS_DB.keys())[0]
+    st.session_state.monitor = {
+        "ritmo": primero,
         "hr": 80, "spo2": 98, "pas": 120, "pad": 80, "rr": 16, "vol": 0.0
     }
-if "id_sim" not in st.session_state:
-    st.session_state.id_sim = "INICIO"
 
-# ==========================================
-# 1. PANTALLA DE LOGIN (Visible y Clara)
-# ==========================================
-if not st.session_state.auth:
-    # Contenedor centrado manual con HTML para evitar estilos oscuros globales
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("""
-        <div class="login-container">
-            <h2 style='color:black; margin-bottom:0;'>🏥 Simulador Clínico</h2>
-            <p style='color:gray;'>Acceso exclusivo docente</p>
-        </div>
-        """, unsafe_allow_html=True)
+# --- 5. BARRA LATERAL (CONTROL DE VISIBILIDAD) ---
+with st.sidebar:
+    st.title("🎛️ Control Maestro")
+    st.markdown("---")
+    # Este switch permite ocultar el panel para que los alumnos solo vean el monitor
+    mostrar_panel = st.toggle("🛠️ Mostrar Panel de Ajustes", value=True)
+    
+    st.markdown("Use este interruptor para ocultar los controles cuando proyecte la pantalla.")
+
+# --- 6. PANEL DE CONTROL (AJUSTES RÁPIDOS) ---
+# Solo se dibuja si el interruptor está activado
+if mostrar_panel:
+    st.markdown("<div class='control-box'><h3>⚡ Ajustes Rápidos</h3>", unsafe_allow_html=True)
+    
+    # 1. Selector de Ritmo (Cargado desde Secrets)
+    sel_ritmo = st.selectbox("Seleccionar Ritmo (DII)", options=list(RITMOS_DB.keys()))
+    
+    # 2. Sliders de Signos Vitales
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        v_hr = st.slider("FC (lpm)", 0, 300, st.session_state.monitor["hr"])
+        v_spo2 = st.slider("SpO2 (%)", 0, 100, st.session_state.monitor["spo2"])
+    with c2:
+        v_pas = st.slider("P. Sistólica", 0, 300, st.session_state.monitor["pas"])
+        v_pad = st.slider("P. Diastólica", 0, 200, st.session_state.monitor["pad"])
+    with c3:
+        v_rr = st.slider("F. Respiratoria", 0, 60, st.session_state.monitor["rr"])
+        v_vol = st.slider("Volumen Audio", 0.0, 1.0, st.session_state.monitor["vol"])
+
+    # 3. Botón de Acción
+    if st.button("APLICAR NUEVA CONFIGURACIÓN"):
+        st.session_state.monitor = {
+            "ritmo": sel_ritmo,
+            "hr": v_hr, "spo2": v_spo2, 
+            "pas": v_pas, "pad": v_pad, 
+            "rr": v_rr, "vol": v_vol
+        }
+        st.rerun() # Recarga inmediata para mostrar cambios
         
-        with st.form("login"):
-            u = st.text_input("Usuario")
-            p = st.text_input("Contraseña", type="password")
-            btn = st.form_submit_button("INGRESAR", type="primary")
-            
-            if btn:
-                if u == creds["username"] and p == creds["password"]:
-                    st.session_state.auth = True
-                    st.rerun()
-                else:
-                    st.error("❌ Datos incorrectos")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# ==========================================
-# 2. PANTALLA DEL MONITOR (Modo Oscuro)
-# ==========================================
-else:
-    # Inyectar fondo negro SOLO cuando ya estamos logueados
-    st.markdown("""<style>.stApp {background-color: #000000 !important; color: white;}</style>""", unsafe_allow_html=True)
+# --- 7. VISUALIZACIÓN DEL MONITOR (SALIDA) ---
+# Separador visual si el panel está abierto
+if mostrar_panel:
+    st.divider()
 
-    # --- BARRA LATERAL (CONTROLES OCULTOS) ---
-    with st.sidebar:
-        st.header("🎛️ Configuración Docente")
-        st.info(f"ID Actual: {st.session_state.id_sim}")
-        
-        # FORMULARIO DE BUFFER: Los cambios no se ven hasta dar "Enviar"
-        with st.form("panel_control"):
-            st.write("### 1. Seleccionar Ritmo")
-            # Recuperar valor actual para el default
-            curr = st.session_state.monitor_data
-            
-            # Selector de ritmo con la lista completa de tus secrets
-            nuevo_ritmo = st.selectbox("Ritmo (DII)", options=list(ritmos_db.keys()))
-            
-            st.write("### 2. Signos Vitales")
-            c1, c2 = st.columns(2)
-            with c1:
-                n_hr = st.number_input("FC (lpm)", 0, 300, curr["hr"])
-                n_spo2 = st.number_input("SpO2 (%)", 0, 100, curr["spo2"])
-            with c2:
-                n_pas = st.number_input("PAS (mmHg)", 0, 300, curr["pas"])
-                n_pad = st.number_input("PAD (mmHg)", 0, 300, curr["pad"])
-            
-            n_rr = st.number_input("FR (rpm)", 0, 100, curr["rr"])
-            st.write("### 3. Audio")
-            n_vol = st.slider("Volumen QRS", 0.0, 1.0, curr["vol"])
-            
-            # BOTÓN CLAVE: Envía los datos al monitor principal
-            aplicar = st.form_submit_button("🚀 ENVIAR AL MONITOR", type="primary")
-        
-        if aplicar:
-            st.session_state.monitor_data = {
-                "ritmo": nuevo_ritmo,
-                "hr": n_hr, "spo2": n_spo2, 
-                "pas": n_pas, "pad": n_pad, "rr": n_rr, "vol": n_vol
-            }
-            # Generar nuevo ID aleatorio
-            st.session_state.id_sim = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-            st.rerun()
+d = st.session_state.monitor
+pam = int((d['pas'] + 2*d['pad']) / 3)
 
-        st.divider()
-        if st.button("Cerrar Sesión"):
-            st.session_state.auth = False
-            st.rerun()
+# Layout: Datos Numéricos (Izquierda) | Trazado ECG (Derecha)
+col_mon_izq, col_mon_der = st.columns([1, 3])
 
-    # --- VISUALIZACIÓN PRINCIPAL (ALUMNOS) ---
-    d = st.session_state.monitor_data
-    pam = int((d['pas'] + 2*d['pad']) / 3)
+with col_mon_izq:
+    # Frecuencia Cardíaca
+    st.markdown(f"""
+    <div class="monitor-box c-hr">
+        <div class="lbl-small">LPM</div>
+        <div class="val-big">{d['hr']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Saturación
+    st.markdown(f"""
+    <div class="monitor-box c-spo2">
+        <div class="lbl-small">SpO2 %</div>
+        <div class="val-big">{d['spo2']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Presión Arterial
+    st.markdown(f"""
+    <div class="monitor-box c-bp">
+        <div class="lbl-small">PANI mmHg (PAM {pam})</div>
+        <div class="val-big" style="font-size: 55px;">{d['pas']}/{d['pad']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Respiración / CO2
+    st.markdown(f"""
+    <div class="monitor-box c-rr">
+        <div class="lbl-small">RR rpm</div>
+        <div class="val-big">{d['rr']}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Layout de Monitor: Signos a la izquierda, Curvas a la derecha
-    col_mon1, col_mon2 = st.columns([1.2, 3])
+with col_mon_der:
+    # Video desde URL Segura
+    url = RITMOS_DB.get(d['ritmo'])
+    
+    if url:
+        st.video(url, autoplay=True, loop=True)
+    else:
+        st.error(f"Error: URL no encontrada para {d['ritmo']}")
 
-    with col_mon1:
-        # FC
-        st.markdown(f"""
-        <div class="vital-box border-hr">
-            <div class="vital-label txt-green">FC <span style="font-size:12px">lpm</span></div>
-            <div class="vital-value txt-green">{d['hr']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # SpO2
-        st.markdown(f"""
-        <div class="vital-box border-spo2">
-            <div class="vital-label txt-yellow">SpO2 <span style="font-size:12px">%</span></div>
-            <div class="vital-value txt-yellow">{d['spo2']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # PA
-        st.markdown(f"""
-        <div class="vital-box border-bp">
-            <div class="vital-label txt-red">PANI <span style="font-size:12px">mmHg</span></div>
-            <div class="vital-value txt-red" style="font-size:60px; margin-top:10px;">{d['pas']}/{d['pad']}</div>
-            <div class="vital-sub txt-red">PAM: {pam}</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # FR
-        st.markdown(f"""
-        <div class="vital-box border-rr">
-            <div class="vital-label txt-cyan">FR <span style="font-size:12px">rpm</span></div>
-            <div class="vital-value txt-cyan">{d['rr']}</div>
-        </div>
-        """, unsafe_allow_html=True)
+# --- 8. AUDIO SINTÉTICO (JS INJECTION) ---
+if d['hr'] > 0 and d['vol'] > 0:
+    intervalo_ms = (60 / d['hr']) * 1000
+    
+    # Script optimizado para mantener el ritmo constante
+    js = f"""
+    <script>
+        var ac = new (window.AudioContext || window.webkitAudioContext)();
+        function beep() {{
+            if (ac.state === 'suspended') ac.resume();
+            var osc = ac.createOscillator();
+            var gn = ac.createGain();
+            osc.connect(gn);
+            gn.connect(ac.destination);
+            osc.type = 'square';
+            osc.frequency.value = 750;
+            gn.gain.value = {d['vol']};
+            osc.start();
+            setTimeout(() => osc.stop(), 150);
+        }}
+        // Limpia timer anterior para evitar superposiciones
+        if(window.sndTimer) clearInterval(window.sndTimer);
+        window.sndTimer = setInterval(beep, {intervalo_ms});
+    </script>
+    """
+    components.html(js, height=0, width=0)
 
-    with col_mon2:
-        # Video del Ritmo
-        url = ritmos_db.get(d['ritmo'])
-        if url:
-            # Contenedor para el video
-            st.markdown(f"<h3 style='margin:0; color:#aaa; font-size:14px;'>DERIVACIÓN II | ID: {st.session_state.id_sim}</h3>", unsafe_allow_html=True)
-            st.video(url, autoplay=True, loop=True)
-        else:
-            st.error("Video no disponible en Secrets")
-
-    # --- SCRIPT DE AUDIO ROBUSTO ---
-    # Solo inyectamos si hay volumen y latido
-    if d['hr'] > 0 and d['vol'] > 0:
-        intervalo = (60 / d['hr']) * 1000
-        
-        # Usamos un botón invisible para "despertar" el AudioContext si está suspendido
-        sound_script = f"""
-        <script>
-            // Crear contexto de audio global
-            var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            
-            function playBeep() {{
-                // Intentar reanudar si el navegador lo bloqueó
-                if (audioCtx.state === 'suspended') {{
-                    audioCtx.resume();
-                }}
-                
-                var oscillator = audioCtx.createOscillator();
-                var gainNode = audioCtx.createGain();
-                
-                oscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                
-                oscillator.type = 'square';
-                oscillator.frequency.value = 750; // Tono médico
-                gainNode.gain.value = {d['vol']}; // Volumen
-                
-                oscillator.start();
-                setTimeout(function() {{ oscillator.stop(); }}, 150);
-            }}
-
-            // Limpiar timers anteriores
-            if (window.monitorTimer) clearInterval(window.monitorTimer);
-            
-            // Iniciar nuevo timer
-            window.monitorTimer = setInterval(playBeep, {intervalo});
-        </script>
-        """
-        import streamlit.components.v1 as components
-        components.html(sound_script, height=0, width=0)
-        
-        # Botón de rescate por si el navegador bloquea el sonido
-        if st.button("🔊 ACTIVAR SONIDO (Click aquí si no suena)"):
-            pass # Al hacer click, el script JS aprovecha la interacción para arrancar
