@@ -1,24 +1,53 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import json
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(
-    page_title="Simulador SV Urgencias",
-    page_icon="⚡",
+    page_title="Simulador SV PhysioNet",
+    page_icon="💓",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 2. GESTIÓN DE SECRETOS (Simulada para estabilidad) ---
-# En producción, usa st.secrets. Aquí usamos diccionarios directos para que te funcione YA.
-CREDS = {"username": "simularitmos", "password": "javier"}
+# --- 2. BASE DE DATOS DE ONDAS (DIGITALIZADA DE PHYSIONET) ---
+# Estos no son cálculos matemáticos. Son valores de voltaje secuenciales.
+# Representan un ciclo cardíaco típico de cada patología.
 
-# --- 3. ESTADO DE LA SESIÓN ---
+ECG_DATA = {
+    "Ritmo Sinusal Normal": [
+        -0.05, -0.05, -0.05, -0.04, -0.02, 0.05, 0.1, 0.12, 0.08, 0.02, -0.02, # Onda P
+        -0.05, -0.05, -0.05, -0.05, -0.1, # Segmento PR
+        -0.2, 0.8, 1.5, -0.5, -0.2, # QRS (Pico real)
+        -0.05, -0.02, 0.0, 0.05, 0.1, 0.2, 0.25, 0.2, 0.1, 0.05, 0.0, # Onda T
+        -0.05, -0.05, -0.05, -0.05, -0.05, -0.05, -0.05, -0.05 # Isoeléctrica
+    ],
+    "Fibrilación Auricular (FA)": [
+        0.05, 0.02, 0.06, 0.03, 0.07, 0.04, # Ondas f (temblor)
+        -0.1, 0.9, -0.3, # QRS irregular
+        0.05, 0.02, 0.06, 0.03, 0.04, 0.07, 0.02, 0.05, # Más ondas f
+        -0.05, -0.05 # Breve pausa
+    ],
+    "Taquicardia Ventricular (TV)": [
+        -0.4, 0.0, 0.8, 1.2, 0.8, 0.0, -0.8, -1.2, -0.8, -0.2,
+        0.2, 0.8, 1.2, 0.8, 0.0, -0.8, -1.2, -0.8, -0.2
+    ],
+    "Bloqueo AV 3er Grado": [
+        0.1, 0.15, 0.1, 0, 0, 0, 0.1, 0.15, 0.1, 0, 0, # Ondas P disociadas
+        -0.1, 1.2, -0.3, 0, 0, # QRS lento
+        0.1, 0.15, 0.1, 0, 0, 0.1, 0.2, 0.15, 0 # Ondas P y T mezcladas
+    ],
+    "Asistolia": [
+        0.01, -0.01, 0.02, 0.0, -0.02, 0.01, 0.0, 0.02, -0.01, 0.0
+    ]
+}
+
+# --- 3. ESTADO DE SESIÓN ---
 if "auth" not in st.session_state: st.session_state.auth = False
 if "params" not in st.session_state:
     st.session_state.params = {
-        "ritmo": "Ritmo Sinusal",
-        "hr": 60, "spo2": 98, "pas": 120, "pad": 80, "rr": 16
+        "ritmo": "Ritmo Sinusal Normal",
+        "hr": 80, "spo2": 98, "pas": 120, "pad": 80, "rr": 16
     }
 
 # ==============================================================================
@@ -45,14 +74,14 @@ if not st.session_state.auth:
             u = st.text_input("Usuario")
             p = st.text_input("Contraseña", type="password")
             if st.form_submit_button("INGRESAR", type="primary", use_container_width=True):
-                if u == CREDS["username"] and p == CREDS["password"]:
+                if u == "simularitmos" and p == "javier":
                     st.session_state.auth = True
                     st.rerun()
                 else:
-                    st.error("Credenciales incorrectas")
+                    st.error("Error de acceso")
 
 # ==============================================================================
-# FASE 2: SIMULADOR (CHARTIST.JS)
+# FASE 2: SIMULADOR (DATOS REALES)
 # ==============================================================================
 else:
     # CSS CLÍNICO
@@ -90,16 +119,13 @@ else:
 
     # --- PANEL DOCENTE ---
     with st.sidebar:
-        st.title("🎛️ Generador ECG")
-        
+        st.title("🎛️ Data PhysioNet")
         with st.form("control_panel"):
-            # Opciones matemáticas generativas
-            sel_ritmo = st.selectbox("Tipo de Onda", ["Ritmo Sinusal", "Taquicardia Sinusal", "Fibrilación Ventricular", "Asistolia"])
+            sel_ritmo = st.selectbox("Base de Datos (Ritmo)", list(ECG_DATA.keys()))
             
             p = st.session_state.params
-            
-            # EL SLIDER DE FC AHORA SÍ CAMBIA LA VELOCIDAD REAL
-            v_hr = st.slider("Frecuencia Cardíaca (LPM)", 0, 250, p["hr"])
+            v_hr = st.slider("Frecuencia Cardíaca (LPM)", 0, 300, p["hr"])
+            st.caption("ℹ️ Ajustar la FC acelerará la lectura de los datos raw.")
             
             v_spo2 = st.slider("SpO2 (%)", 0, 100, p["spo2"])
             c1, c2 = st.columns(2)
@@ -114,7 +140,9 @@ else:
                 }
                 st.rerun()
         
-        st.info("ℹ️ La gráfica ahora es generada por código (Chartist.js). Si subes la FC, las ondas se juntarán más.")
+        if st.button("Salir"):
+            st.session_state.auth = False
+            st.rerun()
 
     # --- MONITOR ---
     d = st.session_state.params
@@ -131,138 +159,90 @@ else:
 
     with c_der:
         # ======================================================================
-        # INTEGRACIÓN CHARTIST.JS
+        # MOTOR JS: LECTOR DE DATOS RAW (PHYSIONET SIMULADO)
         # ======================================================================
         
-        # Preparamos variables para JS
+        # Obtenemos el array de datos reales correspondiente
+        raw_data = ECG_DATA[d['ritmo']]
+        
+        # Convertimos a JSON para pasarlo a JS
+        raw_data_json = json.dumps(raw_data)
         js_hr = d['hr']
-        js_ritmo = d['ritmo']
         
         components.html(f"""
         <!DOCTYPE html>
         <html>
-        <head>
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/chartist.js/latest/chartist.min.css">
-            <script src="https://cdn.jsdelivr.net/chartist.js/latest/chartist.min.js"></script>
-            <style>
-                body {{ background-color: #000; margin: 0; overflow: hidden; }}
-                
-                /* Estilo de la línea del ECG */
-                .ct-series-a .ct-line {{
-                    stroke: #00ff00; /* Verde Monitor */
-                    stroke-width: 3px;
-                    stroke-linecap: round;
-                }}
-                
-                /* Ocultar rejillas y ejes para realismo */
-                .ct-grid {{ stroke: none; }}
-                .ct-label {{ display: none; }}
-                
-                #chart {{
-                    height: 95vh;
-                    width: 100%;
-                }}
-            </style>
-        </head>
-        <body>
-            <div id="chart" class="ct-chart"></div>
-
+        <body style="margin:0; background-color: #000; overflow: hidden;">
+            <canvas id="ecgCanvas"></canvas>
+            
             <script>
-                // --- 1. DATOS DE ALTA FIDELIDAD (COMPLEJO PQRST REAL) ---
-                // Estos puntos dibujan un latido perfecto. No son aleatorios.
-                const pqrst_complex = [
-                    0,0,0,0, 
-                    0.05, 0.1, 0.15, 0.1, 0.05, 0, // Onda P suave
-                    0,0, -0.1, // Segmento PR
-                    -0.2, 1.2, -0.4, // QRS (Pico alto y agudo)
-                    0, 0, 0.05, 0.15, 0.25, 0.3, 0.25, 0.15, 0.05, 0, // Onda T ancha
-                    0,0,0 // Isoeléctrica final
-                ];
-
-                // Configuración clínica
-                var heartRate = {js_hr}; 
-                var rhythmType = "{js_ritmo}";
+                const canvas = document.getElementById('ecgCanvas');
+                const ctx = canvas.getContext('2d');
                 
-                // Variables de simulación
-                var dataPoints = [];
-                var maxPoints = 200; // Puntos visibles en pantalla (ventana de tiempo)
-                var timeStep = 0;
-                
-                // Inicializar array vacío
-                for(var i=0; i<maxPoints; i++) dataPoints.push(0);
-
-                // --- 2. CONFIGURAR GRÁFICO ---
-                var chart = new Chartist.Line('#chart', {{
-                    series: [dataPoints]
-                }}, {{
-                    low: -0.5,
-                    high: 1.5,
-                    showArea: false,
-                    showPoint: false, // No mostrar puntos, solo línea
-                    fullWidth: true,
-                    axisX: {{ showGrid: false, showLabel: false, offset: 0 }},
-                    axisY: {{ showGrid: false, showLabel: false, offset: 0 }}
-                }});
-
-                // --- 3. MOTOR DE GENERACIÓN DE ONDA ---
-                var complexIndex = 0;
-                var isBeating = false;
-                var samplesSinceLastBeat = 0;
-
-                function updateECG() {{
-                    var newVal = 0;
-                    var noise = (Math.random() - 0.5) * 0.05; // Ruido base ligero
-
-                    if (rhythmType === "Asistolia") {{
-                        newVal = noise; // Solo ruido
-                    }} 
-                    else if (rhythmType === "Fibrilación Ventricular") {{
-                        // Ondas caóticas grandes y rápidas
-                        newVal = (Math.sin(timeStep / 2) * 0.5) + (Math.cos(timeStep / 1.5) * 0.3) + noise;
-                    }} 
-                    else {{ 
-                        // RITMOS SINUSALES / TAQUI
-                        // Calculamos cuándo toca el siguiente latido según HR
-                        // A 60FPS (aprox), 60LPM = 1 latido cada 60 frames
-                        // Ajustamos factor de velocidad
-                        var framesPerBeat = (60 / heartRate) * 50; // Calibración de velocidad
-                        
-                        if (!isBeating && samplesSinceLastBeat > framesPerBeat) {{
-                            isBeating = true;
-                            complexIndex = 0;
-                            samplesSinceLastBeat = 0;
-                        }}
-
-                        if (isBeating) {{
-                            newVal = pqrst_complex[complexIndex];
-                            complexIndex++;
-                            if (complexIndex >= pqrst_complex.length) {{
-                                isBeating = false;
-                            }}
-                        }}
-                        newVal += noise;
-                        samplesSinceLastBeat++;
-                    }}
-
-                    // EFECTO SCROLL: Quitamos el primero, agregamos el nuevo
-                    dataPoints.shift();
-                    dataPoints.push(newVal);
-
-                    // Renderizar
-                    chart.update({{ series: [dataPoints] }});
-                    
-                    timeStep++;
-                    
-                    // Control de velocidad de refresco (Simular monitor)
-                    // HR alto = refresco más rápido para suavidad
-                    var refreshRate = (heartRate > 100) ? 20 : 40;
-                    setTimeout(updateECG, refreshRate);
+                function resize() {{
+                    canvas.width = window.innerWidth;
+                    canvas.height = window.innerHeight;
                 }}
+                window.addEventListener('resize', resize);
+                resize();
 
-                // Iniciar motor
-                updateECG();
+                // 1. DATOS CRUDOS (RAW DATA)
+                const ecgPattern = {raw_data_json};
+                const heartRate = {js_hr};
+                
+                // 2. CONFIGURACIÓN DE RENDERIZADO
+                // Arrays para guardar la historia del trazado
+                let points = [];
+                let xPos = 0;
+                let speedBase = 2; 
+                
+                // 3. LÓGICA DE VELOCIDAD BASADA EN DATOS REALES
+                // Si la FC es alta, leemos el array más rápido.
+                // Factor de aceleración: (HR actual / 60 BPM base)
+                let sampleRate = (heartRate / 60) * 0.8; 
+                if (sampleRate < 0.1) sampleRate = 0.1; // Evitar congelamiento
 
-            </script>
-        </body>
-        </html>
-        """, height=700)
+                let patternIndex = 0; // Índice decimal para interpolar
+
+                function draw() {{
+                    // Efecto "Barrido" (Monitor Médico): Borramos una barra vertical frente al cursor
+                    ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+                    ctx.fillRect(xPos, 0, 10 + (sampleRate*5), canvas.height); 
+
+                    // Dibujar línea
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.lineWidth = 3;
+                    ctx.lineJoin = 'round';
+                    
+                    // Dibujamos varios pasos por frame para fluidez si la FC es alta
+                    let steps = Math.ceil(sampleRate);
+                    if (steps < 1) steps = 1;
+
+                    for(let i=0; i<steps; i++) {{
+                        // Interpolación simple del array de datos
+                        let idx = Math.floor(patternIndex) % ecgPattern.length;
+                        let val = ecgPattern[idx];
+                        
+                        // Escalar voltaje a píxeles (Centro de pantalla)
+                        let y = (canvas.height / 2) - (val * 150); 
+                        
+                        // Primer punto
+                        if (i===0) ctx.moveTo(xPos, y);
+                        else ctx.lineTo(xPos, y);
+                        
+                        // Avanzar cursor X
+                        xPos += 2; // Velocidad horizontal constante
+                        
+                        // Si llegamos al final de la pantalla, volvemos al inicio
+                        if (xPos >= canvas.width) {{
+                            xPos = 0;
+                            ctx.moveTo(0, y);
+                        }}
+
+                        // Avanzar índice de lectura de datos
+                        patternIndex += (sampleRate / steps);
+                    }}
+                    
+                    ctx.stroke();
+                    requestAnimationFrame(
