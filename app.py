@@ -1,50 +1,61 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import json
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(
-    page_title="Simulador SV Pro",
+    page_title="Simulador Clínico Pro",
     page_icon="💓",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 2. BASE DE DATOS DE ONDAS (SUAVIZADA Y DE ALTA RESOLUCIÓN) ---
-# He aumentado la densidad de puntos para evitar saltos bruscos.
-ECG_DATA = {
-    "Ritmo Sinusal Normal": [
-        0, 0, 0, 0, 0.02, 0.05, 0.08, 0.05, 0.02, 0, 0, # P
-        0, 0, -0.05, # PR
-        -0.1, 1.0, -0.4, # QRS (Pico alto y limpio)
-        0, 0.05, 0.15, 0.2, 0.25, 0.2, 0.15, 0.05, 0, # T
-        0, 0, 0, 0, 0 # Isoeléctrica
-    ],
-    "Bradicardia Sinusal": [
-        0, 0, 0, 0.03, 0.06, 0.03, 0, 0, 0, 0, # P
-        -0.05, 0.9, -0.3, # QRS
-        0, 0, 0.1, 0.2, 0.1, 0, 0, 0, 0, 0, 0, 0 # T larga + pausa
-    ],
-    "Taquicardia Sinusal": [
-        0.05, 0.1, 0.05, # P rápida
-        -0.1, 1.0, -0.5, # QRS estrecho
-        0.05, 0.2, 0.05, 0 # T fusionada
-    ],
-    "Fibrilación Auricular (FA)": [
-        0.02, -0.03, 0.04, -0.02, 0.03, 0.05, -0.02, # f waves (ruido)
-        -0.1, 0.8, -0.2, # QRS irregular amplitud
-        0.03, -0.04, 0.02, 0.05, -0.03, 0.02,
-        0.04, -0.02, 0.03
-    ],
-    "Taquicardia Ventricular (TV)": [
-        -0.4, 0.2, 0.8, 1.2, 0.6, 0.0, -0.6, -1.0, -0.6, -0.2
-    ],
-    "Fibrilación Ventricular (FV)": [
-        0.2, 0.5, 0.2, -0.3, -0.6, -0.2, 0.4, 0.7, 0.3, -0.1, -0.5
-    ],
-    "Asistolia": [
-        0.01, -0.01, 0.005, -0.005, 0.01, 0, 0.01, -0.01
-    ]
+# --- 2. BASE DE DATOS DE MORFOLOGÍAS (SVG PATHS) ---
+# Estas son instrucciones de dibujo vectorial. Son fijas y perfectas.
+# No se deforman con la velocidad.
+
+RITMOS_SVG = {
+    "Ritmo Sinusal Normal": {
+        # Dibuja P, QRS, T con proporciones médicas exactas
+        "path": "M 0 50 L 10 50 Q 15 40 20 50 L 25 50 L 28 45 L 35 90 L 40 20 L 45 55 L 50 50 L 60 50 Q 75 35 90 50 L 100 50",
+        "color": "#00ff00", # Verde
+        "width": 100 # Ancho del latido en unidades relativas
+    },
+    "Fibrilación Auricular": {
+        # Ondas f basales + QRS irregular
+        "path": "M 0 50 Q 5 48 10 52 Q 15 48 20 52 L 25 50 L 35 90 L 40 20 L 45 55 L 50 52 Q 55 48 60 52 Q 65 48 70 52 Q 75 48 80 52",
+        "color": "#00ff00",
+        "width": 80
+    },
+    "Taquicardia Ventricular": {
+        # Ondas anchas y monomórficas (Dientes de sierra grandes)
+        "path": "M 0 50 Q 20 100 40 50 Q 60 0 80 50",
+        "color": "#ff0000", # Rojo alerta opcional, o verde
+        "width": 80
+    },
+    "Fibrilación Ventricular": {
+        # Caos ondulante
+        "path": "M 0 50 Q 10 20 20 50 Q 30 80 40 50 Q 50 10 60 50 Q 70 90 80 50",
+        "color": "#00ff00",
+        "width": 80
+    },
+    "Bloqueo de Rama Izquierda (BRIHH)": {
+        # QRS ancho y mellado ("Orejas de conejo")
+        "path": "M 0 50 L 10 50 Q 15 40 20 50 L 25 50 L 30 20 L 35 30 L 40 20 L 45 55 L 50 50 L 60 50 Q 75 35 90 50",
+        "color": "#00ff00",
+        "width": 110
+    },
+    "Asistolia": {
+        # Línea casi plana con mínimo ruido
+        "path": "M 0 50 L 100 50",
+        "color": "#00ff00",
+        "width": 100
+    },
+     "Infarto Agudo (IAM con Supra ST)": {
+        # QRS normal + Elevación brutal del punto J y onda T
+        "path": "M 0 50 L 10 50 Q 15 40 20 50 L 25 50 L 35 90 L 40 20 L 45 40 Q 60 20 80 40 L 90 50",
+        "color": "#00ff00", # Verde
+        "width": 100
+    }
 }
 
 # --- 3. ESTADO DE SESIÓN ---
@@ -52,7 +63,7 @@ if "auth" not in st.session_state: st.session_state.auth = False
 if "params" not in st.session_state:
     st.session_state.params = {
         "ritmo": "Ritmo Sinusal Normal",
-        "hr": 80, "spo2": 98, "pas": 120, "pad": 80, "rr": 16
+        "hr": 60, "spo2": 98, "pas": 120, "pad": 80, "rr": 16
     }
 
 # ==============================================================================
@@ -71,10 +82,10 @@ if not st.session_state.auth:
         input { color: black !important; background: white !important; border: 1px solid #ccc !important; }
     </style>
     """, unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        st.markdown("<div class='login-card'><h2>🏥 Control Docente</h2></div>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<div class='login-card'><h2>🏥 Acceso Docente</h2></div>", unsafe_allow_html=True)
         with st.form("login"):
             u = st.text_input("Usuario")
             p = st.text_input("Contraseña", type="password")
@@ -83,27 +94,28 @@ if not st.session_state.auth:
                     st.session_state.auth = True
                     st.rerun()
                 else:
-                    st.error("Error de acceso")
+                    st.error("Error")
 
 # ==============================================================================
-# FASE 2: SIMULADOR (TRAZADO CONTINUO)
+# FASE 2: MONITOR DE ALTA FIDELIDAD
 # ==============================================================================
 else:
+    # ESTILOS CLÍNICOS
     st.markdown("""
     <style>
         .stApp { background-color: #000000; color: white; font-family: 'Consolas', monospace; }
         
-        /* Panel Docente Blanco */
+        /* Sidebar Blanco */
         section[data-testid="stSidebar"] { background-color: #ffffff !important; border-right: 3px solid #999; }
         section[data-testid="stSidebar"] * { color: #000000 !important; }
         
         /* Botón Menú */
         [data-testid="stSidebarCollapsedControl"] {
-            color: black !important; background-color: white !important;
-            border: 2px solid #ccc; z-index: 9999999;
+            color: black !important; background: white !important;
+            border: 2px solid #ccc; z-index: 999999;
         }
         
-        /* Cajas Monitor */
+        /* Cajas Signos Vitales */
         .vital-box {
             background: #080808; border-left: 8px solid;
             padding: 5px 15px; margin-bottom: 8px; height: 16vh;
@@ -114,36 +126,36 @@ else:
         .bp { border-color: #ff3333; color: #ff3333; }
         .rr { border-color: #00ffff; color: #00ffff; }
         
-        .val { font-size: 75px; font-weight: bold; line-height: 1; text-align: right; text-shadow: 0 0 15px currentColor; }
+        .val { font-size: 75px; font-weight: bold; line-height: 1; text-align: right; text-shadow: 0 0 10px currentColor; }
         .lbl { font-size: 16px; opacity: 0.8; }
-        footer {visibility: hidden;}
+        footer { visibility: hidden; }
     </style>
     """, unsafe_allow_html=True)
 
     # --- PANEL DOCENTE ---
     with st.sidebar:
-        st.title("🎛️ Configuración")
+        st.title("🎛️ Generador Vectorial")
         with st.form("control_panel"):
-            sel_ritmo = st.selectbox("Ritmo (PhysioNet Data)", list(ECG_DATA.keys()))
+            sel_ritmo = st.selectbox("Morfología", list(RITMOS_SVG.keys()))
             
             p = st.session_state.params
-            v_hr = st.slider("Frecuencia Cardíaca", 0, 300, p["hr"])
-            st.caption("ℹ️ La FC controla la velocidad del barrido.")
+            v_hr = st.slider("Frecuencia Cardíaca", 20, 250, p["hr"])
+            st.caption("ℹ️ Al subir la FC, el ritmo se acelera sin deformar el QRS.")
             
-            v_spo2 = st.slider("SpO2 (%)", 0, 100, p["spo2"])
+            v_spo2 = st.slider("SpO2", 0, 100, p["spo2"])
             c1, c2 = st.columns(2)
             with c1: v_pas = st.number_input("PAS", 0, 300, p["pas"])
             with c2: v_pad = st.number_input("PAD", 0, 200, p["pad"])
             v_rr = st.slider("FR", 0, 60, p["rr"])
             
-            if st.form_submit_button("🚀 APLICAR CAMBIOS", type="primary"):
+            if st.form_submit_button("🚀 APLICAR", type="primary"):
                 st.session_state.params = {
                     "ritmo": sel_ritmo, "hr": v_hr, "spo2": v_spo2,
                     "pas": v_pas, "pad": v_pad, "rr": v_rr
                 }
                 st.rerun()
         
-        if st.button("Cerrar Sesión"):
+        if st.button("Salir"):
             st.session_state.auth = False
             st.rerun()
 
@@ -161,102 +173,84 @@ else:
         """, unsafe_allow_html=True)
 
     with c_der:
-        # Preparar datos para JS
-        raw_data = json.dumps(ECG_DATA[d['ritmo']])
-        js_hr = d['hr']
+        # ======================================================================
+        # MOTOR SVG ANIMADO (LA SOLUCIÓN A LA MORFOLOGÍA)
+        # ======================================================================
         
+        # 1. Obtenemos el dibujo vectorial del latido seleccionado
+        svg_data = RITMOS_SVG[d['ritmo']]
+        path_d = svg_data["path"]
+        beat_width = svg_data["width"]
+        
+        # 2. Cálculos Matemáticos para NO DEFORMAR
+        # Heart Rate (BPM) -> Latidos por segundo (Hz)
+        bps = d['hr'] / 60.0 
+        
+        # Duración de un ciclo completo en segundos
+        cycle_duration = 1 / bps if bps > 0 else 0
+        
+        # CSS Animation Duration: Controla qué tan rápido pasa la animación
+        # Hacemos que la animación de "desplazamiento" coincida con la FC
+        anim_duration = f"{cycle_duration}s"
+        
+        # Renderizado HTML/CSS/SVG
         components.html(f"""
         <!DOCTYPE html>
         <html>
-        <body style="margin:0; background-color: #000; overflow: hidden;">
-            <canvas id="ecgCanvas"></canvas>
+        <head>
+        <style>
+            body {{ background: #000; margin: 0; overflow: hidden; }}
             
-            <script>
-                const canvas = document.getElementById('ecgCanvas');
-                const ctx = canvas.getContext('2d');
+            /* Contenedor del ECG */
+            .ecg-container {{
+                width: 100%;
+                height: 100vh;
+                display: flex;
+                align-items: center;
+                /* El fondo es una cuadrícula milimétrica sutil */
+                background-image: 
+                    linear-gradient(rgba(0, 255, 0, 0.1) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0, 255, 0, 0.1) 1px, transparent 1px);
+                background-size: 20px 20px;
+            }}
+
+            /* La línea del ECG */
+            .ecg-line {{
+                height: 300px; /* Altura de la onda */
+                width: 100%;
                 
-                function resize() {{
-                    canvas.width = window.innerWidth;
-                    canvas.height = window.innerHeight;
-                }}
-                window.addEventListener('resize', resize);
-                resize();
-
-                // DATOS
-                const ecgPattern = {raw_data};
-                const heartRate = {js_hr};
+                /* AQUÍ ESTÁ EL TRUCO: USAMOS UN PATRÓN SVG REPETITIVO */
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 {beat_width} 100' preserveAspectRatio='none'%3E%3Cpath d='{path_d}' fill='none' stroke='%2300ff00' stroke-width='2' vector-effect='non-scaling-stroke'/%3E%3C/svg%3E");
                 
-                // VARIABLES DE ESTADO (CRÍTICO PARA CONTINUIDAD)
-                let xPos = 0;
-                let lastY = canvas.height / 2; // Guardamos la última Y
-                let patternIndex = 0;
+                background-repeat: repeat-x; /* Se repite infinitamente */
+                background-size: {beat_width * 3}px 100%; /* Tamaño fijo del latido (NO SE DEFORMA) */
+                background-position: 0 center;
                 
-                // Configuración Visual
-                ctx.strokeStyle = '#00ff00'; // Verde Monitor
-                ctx.lineWidth = 3;
-                ctx.shadowBlur = 10; // Efecto Glow (Neón)
-                ctx.shadowColor = '#00ff00';
-                ctx.lineJoin = 'round'; // Suaviza las esquinas
-                ctx.lineCap = 'round';
+                /* Animación de desplazamiento */
+                animation: slideLeft {anim_duration} linear infinite;
+            }}
 
-                // Cálculo de velocidad de lectura
-                // Base: 60 BPM recorre el patrón normal
-                let speedFactor = (heartRate / 60);
-                if (speedFactor < 0.1) speedFactor = 0.1;
-                
-                // Velocidad horizontal en píxeles por frame
-                let horizontalSpeed = 3; 
-
-                function draw() {{
-                    // 1. EFECTO BARRIDO (Borrar lo que está justo adelante)
-                    ctx.fillStyle = 'rgba(0, 0, 0, 1)';
-                    // Borramos una franja un poco más ancha que el salto para asegurar limpieza
-                    ctx.fillRect(xPos, 0, horizontalSpeed + 20, canvas.height); 
-
-                    // 2. DIBUJO CONTINUO
-                    ctx.beginPath();
-                    
-                    // CRUCIAL: Empezar EXACTAMENTE donde terminó el frame anterior
-                    ctx.moveTo(xPos, lastY);
-
-                    // Calculamos nueva posición X
-                    xPos += horizontalSpeed;
-
-                    // Interpolamos el valor Y del array de datos
-                    let idx = Math.floor(patternIndex) % ecgPattern.length;
-                    let val = ecgPattern[idx];
-                    
-                    // Escala vertical (Amplitud)
-                    let newY = (canvas.height / 2) - (val * 180); 
-
-                    // Ruido eléctrico muy leve para realismo
-                    newY += (Math.random() - 0.5) * 2;
-
-                    // Trazar línea
-                    ctx.lineTo(xPos, newY);
-                    ctx.stroke();
-
-                    // Actualizar memoria para el siguiente frame
-                    lastY = newY;
-                    
-                    // Avanzar en el array de datos
-                    patternIndex += (speedFactor * 0.5); // 0.5 es un factor de suavizado de lectura
-
-                    // 3. RESET DE PANTALLA (WRAP AROUND)
-                    if (xPos >= canvas.width) {{
-                        xPos = 0;
-                        // Al saltar al inicio, debemos evitar tirar una línea cruzada
-                        // Así que solo movemos el cursor sin dibujar
-                        ctx.beginPath();
-                        ctx.moveTo(0, newY);
-                        lastY = newY; // Reiniciamos la referencia Y
-                    }}
-
-                    requestAnimationFrame(draw);
-                }}
-
-                draw();
-            </script>
+            /* Definición de la animación: Mover el fondo hacia la izquierda */
+            @keyframes slideLeft {{
+                from {{ background-position: 0 center; }}
+                to {{ background-position: -{beat_width * 3}px center; }}
+            }}
+            
+            /* Efecto de desvanecimiento a la derecha (Barrido) */
+            .fade-overlay {{
+                position: absolute;
+                top: 0; right: 0;
+                width: 100px;
+                height: 100%;
+                background: linear-gradient(to right, transparent, #000);
+            }}
+        </style>
+        </head>
+        <body>
+            <div class="ecg-container">
+                <div class="ecg-line"></div>
+                <div class="fade-overlay"></div>
+            </div>
         </body>
         </html>
         """, height=700)
