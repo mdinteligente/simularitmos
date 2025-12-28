@@ -6,17 +6,20 @@ st.set_page_config(
     page_title="Simulador SV Urgencias",
     page_icon="🏥",
     layout="wide",
-    initial_sidebar_state="expanded" # <--- ESTO OBLIGA A QUE EL PANEL SALGA ABIERTO
+    initial_sidebar_state="expanded"
 )
 
 # --- 2. FUNCIONES Y SECRETOS ---
 def obtener_url_embed(url_original):
+    # Transforma enlace ScreenPal Watch -> Player
     if "screenpal.com/watch/" in url_original:
         vid_id = url_original.split("/")[-1].strip()
+        # autoplay=1, controls=0 quita la barra de reproducción
         return f"https://screenpal.com/player/{vid_id}?width=100%&height=100%&autoplay=1&controls=0&title=0"
     return url_original
 
 def get_secrets():
+    # Validación segura
     if "credentials" not in st.secrets or "ritmos" not in st.secrets:
         st.error("⛔ ERROR: Faltan Secrets.")
         st.stop()
@@ -24,35 +27,36 @@ def get_secrets():
 
 CREDS, RITMOS_DB = get_secrets()
 
-# --- 3. ESTADO ---
+# --- 3. ESTADO DE LA SESIÓN ---
 if "auth" not in st.session_state: st.session_state.auth = False
 if "params" not in st.session_state:
+    # Valores iniciales
     st.session_state.params = {
         "ritmo": list(RITMOS_DB.keys())[0],
         "hr": 80, "spo2": 98, "pas": 120, "pad": 80, "rr": 16, "vol": 0.0
     }
 
 # ==============================================================================
-# FASE 1: LOGIN (FONDO CLARO)
+# FASE 1: LOGIN (VISIBILIDAD CLARA)
 # ==============================================================================
 if not st.session_state.auth:
-    # CSS para limpiar la pantalla de Login
     st.markdown("""
     <style>
         .stApp { background-color: #f0f2f6; color: black; }
-        header { visibility: hidden; } /* Ocultamos header solo en login */
+        header { visibility: hidden; }
         .login-card {
-            background: white; padding: 40px; border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;
-            max-width: 400px; margin: 60px auto;
+            background: white; padding: 40px; border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1); text-align: center;
+            max-width: 400px; margin: 80px auto;
         }
-        input { border: 1px solid #ddd !important; color: black !important; }
+        /* Forzar color negro en inputs */
+        input { color: black !important; -webkit-text-fill-color: black !important; background: white !important; }
     </style>
     """, unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<div class='login-card'><h2>🏥 Control Docente</h2></div>", unsafe_allow_html=True)
+        st.markdown("<div class='login-card'><h2>🏥 Control Docente</h2><p>Ingrese credenciales</p></div>", unsafe_allow_html=True)
         with st.form("login"):
             u = st.text_input("Usuario")
             p = st.text_input("Contraseña", type="password")
@@ -61,35 +65,46 @@ if not st.session_state.auth:
                     st.session_state.auth = True
                     st.rerun()
                 else:
-                    st.error("Error de acceso")
+                    st.error("Acceso denegado")
 
 # ==============================================================================
-# FASE 2: PANEL DOCENTE + MONITOR (FONDO OSCURO)
+# FASE 2: SIMULADOR (PANEL CLARO vs MONITOR OSCURO)
 # ==============================================================================
 else:
     # CSS PARA EL MODO SIMULACIÓN
     st.markdown("""
     <style>
-        /* 1. FONDO NEGRO GLOBAL */
+        /* 1. FONDO NEGRO GLOBAL (Para el Monitor) */
         .stApp { background-color: #000000; color: white; font-family: 'Consolas', monospace; }
         
-        /* 2. PANEL LATERAL (DOCENTE) - GRIS OSCURO */
+        /* 2. PANEL LATERAL (DOCENTE) - AHORA ES CLARO PARA LEGIBILIDAD */
         section[data-testid="stSidebar"] {
-            background-color: #262730; /* Gris visible */
-            border-right: 1px solid #444;
+            background-color: #ffffff !important; /* Fondo Blanco */
+            border-right: 2px solid #ccc;
         }
         
-        /* 3. BOTÓN PARA ABRIR EL PANEL (>): SIEMPRE VISIBLE Y BLANCO */
+        /* Forzar texto NEGRO en el panel lateral */
+        section[data-testid="stSidebar"] h1, 
+        section[data-testid="stSidebar"] h2, 
+        section[data-testid="stSidebar"] h3, 
+        section[data-testid="stSidebar"] label, 
+        section[data-testid="stSidebar"] .stMarkdown,
+        section[data-testid="stSidebar"] p {
+            color: #000000 !important;
+        }
+        
+        /* 3. BOTÓN PARA ABRIR EL PANEL (>): VISIBLE */
         [data-testid="stSidebarCollapsedControl"] {
-            color: white !important;
-            background-color: #333 !important;
+            color: black !important;
+            background-color: white !important;
             display: block !important;
             visibility: visible !important;
+            border: 1px solid #ccc;
             top: 10px; left: 10px;
-            z-index: 9999999; /* Por encima de todo */
+            z-index: 9999999;
         }
         
-        /* 4. CAJAS DEL MONITOR */
+        /* 4. CAJAS DEL MONITOR (CLÍNICAS) */
         .vital-box {
             background: #080808; border-left: 6px solid;
             padding: 5px 15px; margin-bottom: 8px; height: 16vh;
@@ -103,33 +118,41 @@ else:
         .val { font-size: 75px; font-weight: bold; line-height: 1; text-align: right; text-shadow: 0 0 10px currentColor; }
         .lbl { font-size: 16px; opacity: 0.8; }
         
-        /* Ocultar solo footer, DEJAR HEADER VISIBLE PARA PODER USAR LA FLECHA */
+        /* Ocultar footer */
         footer {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
-    # --- PANEL DOCENTE (IZQUIERDA) ---
+    # --- PANEL DOCENTE (FONDO BLANCO, LETRAS NEGRAS) ---
     with st.sidebar:
-        st.header("🎛️ Panel de Control")
-        st.info("Configura aquí. Cierra este panel ('X') para ver pantalla completa.")
+        st.title("🎛️ Configuración")
+        st.info("Panel Docente (No visible en pantalla completa)")
         
         with st.form("control_panel"):
             st.markdown("### Selección de Ritmo")
+            # Lista de ritmos
             sel_ritmo = st.selectbox("Ritmo ECG", list(RITMOS_DB.keys()))
             
             st.markdown("### Signos Vitales")
             p = st.session_state.params
-            v_hr = st.slider("Frecuencia Cardíaca", 0, 300, p["hr"])
+            
+            # Sliders con valores actuales
+            v_hr = st.slider("Frecuencia Cardíaca (LPM)", 0, 300, p["hr"])
             v_spo2 = st.slider("SpO2 (%)", 0, 100, p["spo2"])
             
             c1, c2 = st.columns(2)
             with c1: v_pas = st.number_input("P. Sistólica", 0, 300, p["pas"])
             with c2: v_pad = st.number_input("P. Diastólica", 0, 200, p["pad"])
             
-            v_rr = st.slider("F. Respiratoria", 0, 60, p["rr"])
-            v_vol = st.slider("🔊 Volumen Audio", 0.0, 1.0, p["vol"])
+            v_rr = st.slider("F. Respiratoria (RPM)", 0, 60, p["rr"])
             
-            if st.form_submit_button("🚀 APLICAR CAMBIOS", type="primary"):
+            st.markdown("### Sonido")
+            v_vol = st.slider("🔊 Volumen Monitor", 0.0, 1.0, p["vol"])
+            
+            # Botón ROJO grande para aplicar
+            apply_btn = st.form_submit_button("🚀 APLICAR CAMBIOS", type="primary")
+            
+            if apply_btn:
                 st.session_state.params = {
                     "ritmo": sel_ritmo, "hr": v_hr, "spo2": v_spo2,
                     "pas": v_pas, "pad": v_pad, "rr": v_rr, "vol": v_vol
@@ -141,13 +164,14 @@ else:
             st.session_state.auth = False
             st.rerun()
 
-    # --- MONITOR ESTUDIANTE (DERECHA) ---
+    # --- MONITOR ESTUDIANTE (FONDO NEGRO) ---
     d = st.session_state.params
     pam = int((d['pas'] + 2*d['pad']) / 3)
 
     c_izq, c_der = st.columns([1, 3.5])
 
     with c_izq:
+        # Signos Vitales
         st.markdown(f"""
         <div class="vital-box hr"><div class="lbl">FC</div><div class="val">{d['hr']}</div></div>
         <div class="vital-box spo2"><div class="lbl">SpO2</div><div class="val">{d['spo2']}</div></div>
@@ -156,6 +180,7 @@ else:
         """, unsafe_allow_html=True)
 
     with c_der:
+        # Video Player
         url_raw = RITMOS_DB.get(d['ritmo'])
         if url_raw:
             url_embed = obtener_url_embed(url_raw)
@@ -166,21 +191,42 @@ else:
                 height=700
             )
         else:
-            st.error("Error: Video no configurado en Secrets.")
+            st.error("Video no configurado.")
 
-    # --- AUDIO (Script JS Invisible) ---
+    # --- SONIDO SINCRONIZADO (Lógica Mejorada) ---
     if d['hr'] > 0 and d['vol'] > 0:
+        # Cálculo exacto del intervalo en milisegundos
         intervalo = (60 / d['hr']) * 1000
+        
+        # Script JS que reinicia el timer inmediatamente si cambia el HR
         components.html(f"""
         <script>
-        var ac = new (window.AudioContext || window.webkitAudioContext)();
+        // Singleton AudioContext
+        var ac = window.audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        window.audioCtx = ac;
+
         function beep() {{
             if (ac.state === 'suspended') ac.resume();
-            var o=ac.createOscillator(); var g=ac.createGain();
-            o.connect(g); g.connect(ac.destination);
-            o.type='square'; o.frequency.value=750; g.gain.value={d['vol']};
-            o.start(); setTimeout(()=>o.stop(),150);
+            
+            var osc = ac.createOscillator(); 
+            var gain = ac.createGain();
+            
+            osc.connect(gain); 
+            gain.connect(ac.destination);
+            
+            // Tono 'Square' simula mejor el beep médico
+            osc.type = 'square'; 
+            osc.frequency.value = 750; // 750Hz es el estándar de monitores
+            gain.gain.value = {d['vol']};
+            
+            osc.start(); 
+            setTimeout(()=>osc.stop(), 120); // Beep corto de 120ms
         }}
-        clearInterval(window.t); window.t = setInterval(beep, {intervalo});
+
+        // Limpieza agresiva de intervalos anteriores
+        if (window.monitorInterval) clearInterval(window.monitorInterval);
+        
+        // Iniciar nuevo ritmo EXACTO
+        window.monitorInterval = setInterval(beep, {intervalo});
         </script>
         """, height=0, width=0)
