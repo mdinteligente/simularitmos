@@ -245,4 +245,11 @@ else:
                     }}
                     
                     ctx.stroke();
-                    requestAnimationFrame(
+                    requestAnimationFrame(draw);
+                }}
+
+                draw();
+            </script>
+        </body>
+        </html>
+        """, height=700)
