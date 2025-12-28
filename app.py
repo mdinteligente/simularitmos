@@ -3,277 +3,301 @@ import time
 import random
 import string
 
-# --- 1. CONFIGURACIÓN DE PÁGINA ---
+# --- CONFIGURACIÓN INICIAL DE LA PÁGINA ---
 st.set_page_config(
-    page_title="Simulador SV Urgencias",
-    page_icon="🏥",
+    page_title="Simulador Clínico Avanzado",
+    page_icon="monitor",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed" # Inicia colapsado para que los alumnos no vean el panel
 )
 
-# --- 2. FUNCIONES DE UTILIDAD ---
-
-def generar_id_sesion():
-    """Genera un ID único para la simulación clínica actual"""
-    chars = string.ascii_uppercase + string.digits
-    return ''.join(random.choice(chars) for _ in range(6))
-
-def cargar_secretos():
-    """Manejo robusto de errores para secrets"""
-    if "credentials" not in st.secrets or "ritmos" not in st.secrets:
-        st.error("⛔ ERROR CRÍTICO: Secrets no configurados.")
-        st.info("Por favor configura [credentials] y [ritmos] en el panel de Streamlit Cloud.")
-        st.stop()
-    return st.secrets["credentials"], st.secrets["ritmos"]
-
-# --- 3. GESTIÓN DE ESTADO (SESSION STATE) ---
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-if "sim_id" not in st.session_state:
-    st.session_state.sim_id = generar_id_sesion()
-if "params" not in st.session_state:
-    # Valores por defecto fisiológicos
-    st.session_state.params = {
-        "ritmo_nombre": "Ritmo Sinusal", # Placeholder hasta cargar DB
-        "hr": 80,
-        "spo2": 98,
-        "pas": 120,
-        "pad": 80,
-        "rr": 16,
-        "vol": 0.0
+# --- CSS PROFESIONAL (ESTILO MONITOR DE UCI) ---
+st.markdown("""
+<style>
+    /* 1. FORZAR MODO OSCURO TOTAL Y TIPOGRAFÍA */
+    .stApp {
+        background-color: #000000 !important;
+        color: white;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
 
-# --- 4. INTERFAZ DE LOGIN (ESTADO 1) ---
-def mostrar_login(creds):
-    # CSS específico para la pantalla de login (Limpio y visible)
-    st.markdown("""
-    <style>
-        .login-container {
-            max-width: 400px;
-            margin: 100px auto;
-            padding: 30px;
-            background-color: #f0f2f6;
-            border-radius: 10px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .stApp { background-color: white; color: black; } /* Forzar fondo claro en login */
-    </style>
-    """, unsafe_allow_html=True)
+    /* 2. OCULTAR ELEMENTOS NATIVOS DE STREAMLIT (HAMBURGUESA, FOOTER) */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stDeployButton {display:none;}
 
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown("<div style='text-align: center; margin-top: 50px;'><h1>🏥 Acceso Docente</h1></div>", unsafe_allow_html=True)
-        st.markdown("### Simulador de Signos Vitales - Urgencias")
-        
-        with st.form("login_form"):
-            user = st.text_input("Usuario")
-            password = st.text_input("Contraseña", type="password")
-            submit = st.form_submit_button("INGRESAR AL SIMULADOR", type="primary")
-            
-            if submit:
-                if user == creds["username"] and password == creds["password"]:
-                    st.session_state.authenticated = True
-                    st.rerun()
-                else:
-                    st.error("Usuario o contraseña incorrectos.")
+    /* 3. CAJAS DE SIGNOS VITALES (ALTA FIDELIDAD) */
+    .vital-container {
+        background-color: #0a0a0a;
+        border: 1px solid #333;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 10px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        height: 160px; /* Altura fija para alineación */
+    }
 
-# --- 5. INTERFAZ DEL MONITOR (ESTADO 2) ---
-def mostrar_monitor(ritmos_db):
-    # CSS AGRESIVO PARA EL MODO MONITOR (NEGRO TOTAL)
-    st.markdown("""
-    <style>
-        /* Fondo negro absoluto */
-        .stApp { background-color: #000000 !important; color: white; }
-        
-        /* Ocultar elementos de Streamlit que distraen */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
-        header {visibility: hidden;}
-        
-        /* Estilos de las cajas de signos vitales */
-        .vital-box {
-            background-color: #111;
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 15px;
-            border-left: 6px solid;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-        
-        /* Colores Clínicos Estándar */
-        .ecg-color { border-color: #00ff00; color: #00ff00; }     /* Verde */
-        .spo2-color { border-color: #ffff00; color: #ffff00; }   /* Amarillo */
-        .bp-color { border-color: #ff3333; color: #ff3333; }     /* Rojo */
-        .rr-color { border-color: #00ffff; color: #00ffff; }     /* Cyan */
-        
-        /* Tipografía Digital */
-        .vital-label { font-size: 16px; opacity: 0.8; font-weight: normal; margin-bottom: 0px; }
-        .vital-value { font-family: 'Courier New', monospace; font-size: 80px; font-weight: bold; line-height: 1; text-shadow: 0 0 10px rgba(255,255,255,0.3); }
-        .vital-sub { font-size: 24px; font-family: 'Courier New', monospace; opacity: 0.9; }
-        
-        /* Ajuste del contenedor de video */
-        .stVideo { border: 2px solid #333; border-radius: 5px; }
-    </style>
-    """, unsafe_allow_html=True)
+    /* Colores Específicos */
+    .c-hr { border-left: 8px solid #00ff00; color: #00ff00; } /* Verde */
+    .c-spo2 { border-left: 8px solid #ffff00; color: #ffff00; } /* Amarillo */
+    .c-nbp { border-left: 8px solid #ff3333; color: #ff3333; } /* Rojo */
+    .c-rr { border-left: 8px solid #00ffff; color: #00ffff; } /* Cyan */
 
-    # --- BARRA LATERAL (CONTROL DOCENTE) ---
-    with st.sidebar:
-        st.header("🎛️ Configuración")
-        st.info(f"Simulación ID: **{st.session_state.sim_id}**")
-        
-        # Formulario para evitar recargas constantes, solo al aplicar
-        with st.form("control_panel"):
-            # Selección de Ritmo
-            lista_ritmos = list(ritmos_db.keys())
-            # Intentar mantener la selección anterior si existe
-            idx_actual = 0
-            if st.session_state.params["ritmo_nombre"] in lista_ritmos:
-                idx_actual = lista_ritmos.index(st.session_state.params["ritmo_nombre"])
-            
-            sel_ritmo = st.selectbox("Ritmo Cardíaco (DII)", options=lista_ritmos, index=idx_actual)
-            
-            st.divider()
-            
-            # Signos Vitales
-            c1, c2 = st.columns(2)
-            with c1:
-                new_hr = st.number_input("FC (lpm)", 0, 300, st.session_state.params["hr"])
-                new_spo2 = st.number_input("SpO2 (%)", 0, 100, st.session_state.params["spo2"])
-            with c2:
-                new_pas = st.number_input("PAS (mmHg)", 0, 300, st.session_state.params["pas"])
-                new_pad = st.number_input("PAD (mmHg)", 0, 300, st.session_state.params["pad"])
-            
-            new_rr = st.number_input("FR (rpm)", 0, 60, st.session_state.params["rr"])
-            
-            st.divider()
-            new_vol = st.slider("Volumen Sonido QRS", 0.0, 1.0, st.session_state.params["vol"])
-            
-            # Botón de Aplicar
-            aplicar = st.form_submit_button("🚀 ACTUALIZAR MONITOR")
-            
-            if aplicar:
-                # Actualizar estado
-                st.session_state.params = {
-                    "ritmo_nombre": sel_ritmo,
-                    "hr": new_hr,
-                    "spo2": new_spo2,
-                    "pas": new_pas,
-                    "pad": new_pad,
-                    "rr": new_rr,
-                    "vol": new_vol
-                }
-                # Generar nuevo ID de evento si cambian parámetros críticos
-                st.session_state.sim_id = generar_id_sesion()
+    /* Textos dentro de las cajas */
+    .vital-label { font-size: 18px; font-weight: 600; opacity: 0.8; text-transform: uppercase; letter-spacing: 1px;}
+    .vital-value { 
+        font-family: 'Consolas', 'Courier New', monospace; 
+        font-size: 85px; 
+        font-weight: 700; 
+        line-height: 1; 
+        text-shadow: 0 0 10px currentColor; /* Efecto Glow/Neón */
+    }
+    .vital-sub { font-size: 24px; font-family: 'Courier New', monospace; margin-top: 5px; opacity: 0.9;}
+
+    /* 4. VIDEO CONTAINER */
+    .video-container {
+        border: 2px solid #333;
+        border-radius: 10px;
+        overflow: hidden;
+        background: black;
+        box-shadow: 0 0 20px rgba(0,255,0,0.1);
+    }
+    
+    /* 5. MENSAJES DE ERROR/LOGIN */
+    .login-box {
+        background-color: #ffffff;
+        color: #000000;
+        padding: 40px;
+        border-radius: 10px;
+        margin-top: 100px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- GESTIÓN DE SECRETOS Y SEGURIDAD ---
+def obtener_ritmos_y_credenciales():
+    # Verificar si existen los secretos configurados en la nube
+    if "credentials" not in st.secrets or "ritmos" not in st.secrets:
+        st.warning("⚠️ MODO DEPURACIÓN: Secrets no encontrados.")
+        st.info("Configura los secretos en Streamlit Cloud. Usando valores de prueba temporales...")
+        # Valores fallback para que NO falle si olvidas configurar (Solo para prueba)
+        return {"username":"admin", "password":"123"}, {"Ritmo Sinusal (Demo)":"https://screenpal.com/watch/cTVFFNnf1p2"}
+    
+    return st.secrets["credentials"], st.secrets["ritmos"]
+
+CREDENTIALS, RITMOS_DB = obtener_ritmos_y_credenciales()
+
+# --- INICIALIZACIÓN DE ESTADO (SESSION STATE) ---
+if "auth" not in st.session_state:
+    st.session_state.auth = False
+if "monitor_params" not in st.session_state:
+    # Estado inicial del monitor (lo que ve el alumno)
+    st.session_state.monitor_params = {
+        "ritmo": list(RITMOS_DB.keys())[0],
+        "hr": 80, "spo2": 98, "pas": 120, "pad": 80, "rr": 16, "vol": 0.0,
+        "blackout": False # Pantalla negra inicial
+    }
+if "sim_id" not in st.session_state:
+    st.session_state.sim_id = "INIT-001"
+
+# --- PANTALLA 1: LOGIN (VISIBLE Y CLARA) ---
+def login_screen():
+    c1, c2, c3 = st.columns([1,1,1])
+    with c2:
+        # Usamos un container con fondo blanco forzado por CSS (clase login-box)
+        st.markdown('<div class="login-box"><h2>🔐 Acceso Docente</h2>', unsafe_allow_html=True)
+        user = st.text_input("Usuario")
+        pwd = st.text_input("Contraseña", type="password")
+        if st.button("INGRESAR AL SISTEMA", type="primary"):
+            if user == CREDENTIALS["username"] and pwd == CREDENTIALS["password"]:
+                st.session_state.auth = True
                 st.rerun()
+            else:
+                st.error("Credenciales inválidas")
+        st.markdown('</div>', unsafe_allow_html=True)
 
+# --- PANTALLA 2: MONITOR DE SIGNOS VITALES ---
+def monitor_screen():
+    # ---------------------------------------------------------
+    # PANEL DE CONTROL DOCENTE (BARRA LATERAL / SIDEBAR)
+    # ---------------------------------------------------------
+    with st.sidebar:
+        st.header("🎛️ PANEL DOCENTE")
+        st.markdown("*(Los alumnos no ven esto)*")
+        st.info(f"🆔 Simulación: {st.session_state.sim_id}")
+
+        # Formulario para que los cambios NO se apliquen inmediatamente
+        with st.form("panel_control"):
+            st.subheader("1. Selección de Ritmo")
+            # Recuperamos el valor actual para ponerlo por defecto
+            current = st.session_state.monitor_params
+            
+            sel_ritmo = st.selectbox("Ritmo Cardíaco", list(RITMOS_DB.keys()))
+            
+            st.subheader("2. Signos Vitales")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                v_hr = st.number_input("FC (lpm)", 0, 300, current["hr"])
+                v_spo2 = st.number_input("SpO2 (%)", 0, 100, current["spo2"])
+            with col_b:
+                v_pas = st.number_input("PAS (mmHg)", 0, 300, current["pas"])
+                v_pad = st.number_input("PAD (mmHg)", 0, 300, current["pad"])
+            
+            v_rr = st.number_input("FR (rpm)", 0, 100, current["rr"])
+            v_vol = st.slider("Volumen Sonido", 0.0, 1.0, current["vol"])
+
+            st.subheader("3. Control de Visualización")
+            v_blackout = st.checkbox("⬛ PANTALLA NEGRA (Pausa/Ocultar)", value=current["blackout"])
+
+            # BOTÓN DE ACCIÓN
+            aplicar = st.form_submit_button("🚀 ENVIAR AL MONITOR", type="primary")
+
+        if aplicar:
+            # Solo aquí actualizamos el estado que ve el alumno
+            st.session_state.monitor_params = {
+                "ritmo": sel_ritmo,
+                "hr": v_hr, "spo2": v_spo2,
+                "pas": v_pas, "pad": v_pad,
+                "rr": v_rr, "vol": v_vol,
+                "blackout": v_blackout
+            }
+            # Generar nuevo ID único para tracking
+            st.session_state.sim_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+            st.rerun()
+            
+        st.divider()
         if st.button("Cerrar Sesión"):
-            st.session_state.authenticated = False
+            st.session_state.auth = False
             st.rerun()
 
-    # --- ÁREA PRINCIPAL DEL MONITOR ---
+    # ---------------------------------------------------------
+    # VISUALIZACIÓN DEL MONITOR (LO QUE VEN LOS ALUMNOS)
+    # ---------------------------------------------------------
     
-    p = st.session_state.params
-    # Cálculo de PAM (Presión Arterial Media)
-    pam = int((p['pas'] + (2 * p['pad'])) / 3)
+    p = st.session_state.monitor_params
 
-    # Layout: 25% Signos numéricos | 75% Trazados (Video)
-    col_izq, col_der = st.columns([1.2, 3.5])
+    # SI ESTÁ ACTIVO EL "BLACKOUT", NO MOSTRAMOS NADA
+    if p["blackout"]:
+        st.markdown("""
+        <div style="display:flex; justify-content:center; align-items:center; height:80vh; border: 2px solid #333;">
+            <h1 style="color:#333; font-family:'Courier New';">MONITOR EN ESPERA...</h1>
+        </div>
+        """, unsafe_allow_html=True)
+        return # Cortamos la ejecución aquí
+
+    # CÁLCULOS CLÍNICOS
+    pam = int((p['pas'] + 2*p['pad']) / 3)
+
+    # LAYOUT PRINCIPAL: 2 COLUMNAS (DATOS | ONDAS)
+    col_izq, col_der = st.columns([1.5, 4])
 
     with col_izq:
-        # 1. Frecuencia Cardíaca (Verde)
+        # FC (Verde)
         st.markdown(f"""
-        <div class="vital-box ecg-color">
-            <div class="vital-label">FC (lpm)</div>
+        <div class="vital-container c-hr">
+            <div class="vital-label">ECG / LPM</div>
             <div class="vital-value">{p['hr']}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        # 2. SpO2 (Amarillo)
+        # SpO2 (Amarillo)
         st.markdown(f"""
-        <div class="vital-box spo2-color">
-            <div class="vital-label">SpO2 (%)</div>
+        <div class="vital-container c-spo2">
+            <div class="vital-label">SpO2 %</div>
             <div class="vital-value">{p['spo2']}</div>
         </div>
         """, unsafe_allow_html=True)
 
-        # 3. Presión Arterial (Rojo)
+        # PANI (Rojo)
         st.markdown(f"""
-        <div class="vital-box bp-color">
-            <div class="vital-label">PANI (mmHg)</div>
-            <div class="vital-value" style="font-size: 60px;">{p['pas']}/{p['pad']}</div>
+        <div class="vital-container c-nbp">
+            <div class="vital-label">PANI mmHg</div>
+            <div class="vital-value" style="font-size: 65px;">{p['pas']}/{p['pad']}</div>
             <div class="vital-sub">PAM: {pam}</div>
         </div>
         """, unsafe_allow_html=True)
-        
-        # 4. Frecuencia Respiratoria (Cyan)
+
+        # FR (Cyan)
         st.markdown(f"""
-        <div class="vital-box rr-color">
-            <div class="vital-label">FR (rpm)</div>
-            <div class="vital-value" style="font-size: 60px;">{p['rr']}</div>
+        <div class="vital-container c-rr">
+            <div class="vital-label">RESP rpm</div>
+            <div class="vital-value">{p['rr']}</div>
         </div>
         """, unsafe_allow_html=True)
 
     with col_der:
-        # Trazado / Video
-        # Nota: Screenpal permite pausar haciendo clic en el video (nativo del navegador)
-        url_video = ritmos_db.get(p['ritmo_nombre'])
+        # ÁREA DE VIDEO (ONDAS)
+        url_video = RITMOS_DB.get(p['ritmo'], "")
+        
+        # Título discreto del ritmo (opcional, para el alumno)
+        st.markdown(f"<div style='margin-bottom:5px; color:#666; font-size:12px;'>DERIVACIÓN DII | {st.session_state.sim_id}</div>", unsafe_allow_html=True)
         
         if url_video:
-            st.markdown(f"<h3 style='color:white; margin:0;'>Derivación DII - {p['ritmo_nombre']}</h3>", unsafe_allow_html=True)
+            # Contenedor CSS para darle borde
+            st.markdown('<div class="video-container">', unsafe_allow_html=True)
             st.video(url_video, autoplay=True, loop=True)
+            st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.error(f"Video no encontrado para: {p['ritmo_nombre']}")
-            st.warning("Verifica la configuración en Secrets.")
+            st.error(f"❌ ERROR: Video no encontrado para '{p['ritmo']}'. Revisa tus Secrets.")
 
-    # --- INYECCIÓN DE AUDIO (JavaScript) ---
-    # Solo inyectamos el script si hay frecuencia cardíaca y volumen > 0
+    # ---------------------------------------------------------
+    # SISTEMA DE SONIDO (JAVASCRIPT)
+    # ---------------------------------------------------------
+    # Nota: Los navegadores bloquean el sonido si no hay interacción.
+    # Solución: Botón invisible que gestiona el contexto.
+    
     if p['hr'] > 0 and p['vol'] > 0:
         intervalo_ms = (60 / p['hr']) * 1000
-        # Script JS optimizado para evitar superposición de sonidos
-        js_audio = f"""
+        
+        # Script JS robusto que verifica el AudioContext
+        js_sound = f"""
         <script>
-            var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            
-            function beep() {{
-                if (audioCtx.state === 'suspended') {{ audioCtx.resume(); }}
+            // Singleton para el contexto de audio
+            if (!window.audioCtx) {{
+                window.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }}
+
+            function playBeep() {{
+                if (window.audioCtx.state === 'suspended') {{
+                    // Intentamos reanudar (necesita interacción previa del usuario en la página)
+                    window.audioCtx.resume();
+                }}
                 
-                var osc = audioCtx.createOscillator();
-                var gain = audioCtx.createGain();
+                var osc = window.audioCtx.createOscillator();
+                var gain = window.audioCtx.createGain();
                 
                 osc.connect(gain);
-                gain.connect(audioCtx.destination);
+                gain.connect(window.audioCtx.destination);
                 
                 osc.type = 'square';
-                osc.frequency.value = 750; // Tono Hz típico de monitor
+                osc.frequency.value = 750; // Tono "High Pitch" médico
                 gain.gain.value = {p['vol']};
                 
                 osc.start();
-                setTimeout(function() {{ osc.stop(); }}, 150); // Duración beep
+                setTimeout(function() {{ osc.stop(); }}, 120);
             }}
-            
-            // Limpiar intervalo anterior si existe
+
+            // Limpiar intervalos previos para evitar caos sonoro
             if (window.monitorInterval) clearInterval(window.monitorInterval);
             
-            // Iniciar nuevo intervalo
-            window.monitorInterval = setInterval(beep, {intervalo_ms});
+            // Iniciar nuevo ritmo
+            window.monitorInterval = setInterval(playBeep, {intervalo_ms});
         </script>
         """
         import streamlit.components.v1 as components
-        components.html(js_audio, height=0)
+        components.html(js_sound, height=0, width=0)
+        
+        # Botón pequeño de ayuda si el sonido no arranca (culpa del navegador)
+        st.toast("🔊 Si no escuchas sonido, haz clic en cualquier lugar de la página una vez.", icon="ℹ️")
 
 
-# --- 6. EJECUCIÓN PRINCIPAL ---
-
-def main():
-    creds, ritmos_db = cargar_secretos()
-    
-    if not st.session_state.authenticated:
-        mostrar_login(creds)
-    else:
-        mostrar_monitor(ritmos_db)
-
+# --- EJECUCIÓN ---
 if __name__ == "__main__":
-    main()
+    if not st.session_state.auth:
+        login_screen()
+    else:
+        monitor_screen()
