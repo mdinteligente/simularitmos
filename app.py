@@ -1,32 +1,30 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-# --- 1. CONFIGURACIÓN ---
+# --- 1. CONFIGURACIÓN: PANEL ABIERTO AL INICIO ---
 st.set_page_config(
     page_title="Simulador SV Urgencias",
     page_icon="🏥",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded" # <--- ESTO OBLIGA A QUE EL PANEL SALGA ABIERTO
 )
 
-# --- 2. FUNCIONES DE UTILIDAD ---
+# --- 2. FUNCIONES Y SECRETOS ---
 def obtener_url_embed(url_original):
-    # Corrección para enlaces de ScreenPal
     if "screenpal.com/watch/" in url_original:
         vid_id = url_original.split("/")[-1].strip()
         return f"https://screenpal.com/player/{vid_id}?width=100%&height=100%&autoplay=1&controls=0&title=0"
     return url_original
 
 def get_secrets():
-    # Validación simple para que no falle si faltan secrets
     if "credentials" not in st.secrets or "ritmos" not in st.secrets:
-        st.error("⛔ ERROR: Configura los Secrets en Streamlit Cloud.")
+        st.error("⛔ ERROR: Faltan Secrets.")
         st.stop()
     return st.secrets["credentials"], st.secrets["ritmos"]
 
 CREDS, RITMOS_DB = get_secrets()
 
-# --- 3. GESTIÓN DE ESTADO ---
+# --- 3. ESTADO ---
 if "auth" not in st.session_state: st.session_state.auth = False
 if "params" not in st.session_state:
     st.session_state.params = {
@@ -35,148 +33,103 @@ if "params" not in st.session_state:
     }
 
 # ==============================================================================
-# FASE 1: LOGIN (DISEÑO CLARO -VISIBLE-)
+# FASE 1: LOGIN (FONDO CLARO)
 # ==============================================================================
 if not st.session_state.auth:
-    # CSS ESPECÍFICO PARA LOGIN (Fondo Claro, Letras Negras)
+    # CSS para limpiar la pantalla de Login
     st.markdown("""
     <style>
-        /* Forzar fondo claro */
-        .stApp { 
-            background-color: #f0f2f6 !important; 
-            color: black !important;
-        }
-        
-        /* Contenedor del Login */
+        .stApp { background-color: #f0f2f6; color: black; }
+        header { visibility: hidden; } /* Ocultamos header solo en login */
         .login-card {
-            background-color: white;
-            padding: 40px;
-            border-radius: 10px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-            text-align: center;
-            max-width: 450px;
-            margin: 50px auto;
+            background: white; padding: 40px; border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center;
+            max-width: 400px; margin: 60px auto;
         }
-        
-        /* Estilos para inputs (Casillas) */
-        input[type="text"], input[type="password"] {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-            border: 1px solid #ccc !important;
-        }
-        
-        /* Ocultar elementos extra */
-        #MainMenu, footer, header {visibility: hidden;}
+        input { border: 1px solid #ddd !important; color: black !important; }
     </style>
     """, unsafe_allow_html=True)
 
-    # LAYOUT DEL LOGIN
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        st.markdown("""
-        <div class="login-card">
-            <h1 style="color: #0d47a1;">🏥 Simulador Clínico</h1>
-            <p style="color: #555;">Acceso Docente</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Formulario nativo (Ahora se verá bien gracias al CSS de arriba)
-        with st.form("login_form"):
-            user = st.text_input("Usuario (simularitmos)")
-            pwd = st.text_input("Contraseña", type="password")
-            
-            # Botón de ancho completo
-            submitted = st.form_submit_button("INGRESAR AL SISTEMA", type="primary", use_container_width=True)
-            
-            if submitted:
-                if user == CREDS["username"] and pwd == CREDS["password"]:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<div class='login-card'><h2>🏥 Control Docente</h2></div>", unsafe_allow_html=True)
+        with st.form("login"):
+            u = st.text_input("Usuario")
+            p = st.text_input("Contraseña", type="password")
+            if st.form_submit_button("INGRESAR", type="primary", use_container_width=True):
+                if u == CREDS["username"] and p == CREDS["password"]:
                     st.session_state.auth = True
                     st.rerun()
                 else:
-                    st.error("❌ Credenciales incorrectas")
+                    st.error("Error de acceso")
 
 # ==============================================================================
-# FASE 2: MONITOR (DISEÑO OSCURO -CLÍNICO-)
+# FASE 2: PANEL DOCENTE + MONITOR (FONDO OSCURO)
 # ==============================================================================
 else:
-    # CSS ESPECÍFICO PARA EL MONITOR (Inyectado solo al entrar)
+    # CSS PARA EL MODO SIMULACIÓN
     st.markdown("""
     <style>
-        /* FONDO NEGRO ABSOLUTO */
-        .stApp { 
-            background-color: #000000 !important; 
-            color: white !important;
-            font-family: 'Consolas', monospace;
-        }
-
-        /* ESTILO DEL PANEL LATERAL (DOCENTE) */
+        /* 1. FONDO NEGRO GLOBAL */
+        .stApp { background-color: #000000; color: white; font-family: 'Consolas', monospace; }
+        
+        /* 2. PANEL LATERAL (DOCENTE) - GRIS OSCURO */
         section[data-testid="stSidebar"] {
-            background-color: #1a1a1a !important;
-            border-right: 1px solid #333;
-        }
-        /* Texto del sidebar visible */
-        section[data-testid="stSidebar"] * {
-            color: #eeeeee !important;
+            background-color: #262730; /* Gris visible */
+            border-right: 1px solid #444;
         }
         
-        /* BOTÓN FLOTANTE PARA ABRIR SIDEBAR (Siempre visible) */
+        /* 3. BOTÓN PARA ABRIR EL PANEL (>): SIEMPRE VISIBLE Y BLANCO */
         [data-testid="stSidebarCollapsedControl"] {
-            background-color: #333;
-            color: white;
-            border-radius: 5px;
-            z-index: 999999;
+            color: white !important;
+            background-color: #333 !important;
+            display: block !important;
+            visibility: visible !important;
+            top: 10px; left: 10px;
+            z-index: 9999999; /* Por encima de todo */
         }
-
-        /* CAJAS DE SIGNOS VITALES */
+        
+        /* 4. CAJAS DEL MONITOR */
         .vital-box {
-            background: #080808; 
-            border-left: 6px solid;
-            padding: 5px 15px; 
-            margin-bottom: 8px; 
-            height: 16vh;
-            display: flex; 
-            flex-direction: column; 
-            justify-content: center;
+            background: #080808; border-left: 6px solid;
+            padding: 5px 15px; margin-bottom: 8px; height: 16vh;
+            display: flex; flex-direction: column; justify-content: center;
         }
-        /* Colores */
         .hr { border-color: #00ff00; color: #00ff00; }
         .spo2 { border-color: #ffff00; color: #ffff00; }
         .bp { border-color: #ff3333; color: #ff3333; }
         .rr { border-color: #00ffff; color: #00ffff; }
-
-        /* Tipografía Gigante */
+        
         .val { font-size: 75px; font-weight: bold; line-height: 1; text-align: right; text-shadow: 0 0 10px currentColor; }
-        .lbl { font-size: 16px; opacity: 0.8; text-transform: uppercase; }
-
-        /* Ocultar UI de Streamlit */
-        #MainMenu, footer, header {visibility: hidden;}
+        .lbl { font-size: 16px; opacity: 0.8; }
+        
+        /* Ocultar solo footer, DEJAR HEADER VISIBLE PARA PODER USAR LA FLECHA */
+        footer {visibility: hidden;}
     </style>
     """, unsafe_allow_html=True)
 
-    # --- BARRA LATERAL (DOCENTE) ---
+    # --- PANEL DOCENTE (IZQUIERDA) ---
     with st.sidebar:
-        st.title("🎛️ Configuración")
-        st.info("Para ocultar este panel, pulsa la 'X' o '<' arriba.")
+        st.header("🎛️ Panel de Control")
+        st.info("Configura aquí. Cierra este panel ('X') para ver pantalla completa.")
         
-        with st.form("controls"):
-            # Ritmo
-            sel_ritmo = st.selectbox("Seleccionar Ritmo", list(RITMOS_DB.keys()))
-            st.divider()
+        with st.form("control_panel"):
+            st.markdown("### Selección de Ritmo")
+            sel_ritmo = st.selectbox("Ritmo ECG", list(RITMOS_DB.keys()))
             
-            # Signos Vitales
+            st.markdown("### Signos Vitales")
             p = st.session_state.params
-            v_hr = st.slider("FC (lpm)", 0, 300, p["hr"])
+            v_hr = st.slider("Frecuencia Cardíaca", 0, 300, p["hr"])
             v_spo2 = st.slider("SpO2 (%)", 0, 100, p["spo2"])
             
-            c_a, c_b = st.columns(2)
-            with c_a: v_pas = st.number_input("PAS", 0, 300, p["pas"])
-            with c_b: v_pad = st.number_input("PAD", 0, 200, p["pad"])
+            c1, c2 = st.columns(2)
+            with c1: v_pas = st.number_input("P. Sistólica", 0, 300, p["pas"])
+            with c2: v_pad = st.number_input("P. Diastólica", 0, 200, p["pad"])
             
-            v_rr = st.slider("FR (rpm)", 0, 60, p["rr"])
-            v_vol = st.slider("Volumen Audio", 0.0, 1.0, p["vol"])
+            v_rr = st.slider("F. Respiratoria", 0, 60, p["rr"])
+            v_vol = st.slider("🔊 Volumen Audio", 0.0, 1.0, p["vol"])
             
-            # Botón de Aplicar
-            if st.form_submit_button("🚀 ACTUALIZAR MONITOR", type="primary"):
+            if st.form_submit_button("🚀 APLICAR CAMBIOS", type="primary"):
                 st.session_state.params = {
                     "ritmo": sel_ritmo, "hr": v_hr, "spo2": v_spo2,
                     "pas": v_pas, "pad": v_pad, "rr": v_rr, "vol": v_vol
@@ -188,54 +141,34 @@ else:
             st.session_state.auth = False
             st.rerun()
 
-    # --- MONITOR (ESTUDIANTE) ---
+    # --- MONITOR ESTUDIANTE (DERECHA) ---
     d = st.session_state.params
     pam = int((d['pas'] + 2*d['pad']) / 3)
 
-    # Botón de rescate discreto (Arriba a la derecha)
-    c_fill, c_btn = st.columns([10, 1])
-    with c_btn:
-        if st.button("⚙️", key="rescue_btn", help="Si perdiste el panel, clic aquí"):
-            pass
+    c_izq, c_der = st.columns([1, 3.5])
 
-    # Layout Principal
-    col_nums, col_video = st.columns([1, 3.5])
-
-    with col_nums:
-        # 1. FC
+    with c_izq:
         st.markdown(f"""
-        <div class="vital-box hr"><div class="lbl">FC (LPM)</div><div class="val">{d['hr']}</div></div>
-        """, unsafe_allow_html=True)
-        # 2. SpO2
-        st.markdown(f"""
-        <div class="vital-box spo2"><div class="lbl">SpO2 (%)</div><div class="val">{d['spo2']}</div></div>
-        """, unsafe_allow_html=True)
-        # 3. PA
-        st.markdown(f"""
-        <div class="vital-box bp"><div class="lbl">PANI (PAM {pam})</div><div class="val" style="font-size:55px">{d['pas']}/{d['pad']}</div></div>
-        """, unsafe_allow_html=True)
-        # 4. RR
-        st.markdown(f"""
-        <div class="vital-box rr"><div class="lbl">RR (RPM)</div><div class="val">{d['rr']}</div></div>
+        <div class="vital-box hr"><div class="lbl">FC</div><div class="val">{d['hr']}</div></div>
+        <div class="vital-box spo2"><div class="lbl">SpO2</div><div class="val">{d['spo2']}</div></div>
+        <div class="vital-box bp"><div class="lbl">PANI ({pam})</div><div class="val" style="font-size:55px">{d['pas']}/{d['pad']}</div></div>
+        <div class="vital-box rr"><div class="lbl">RR</div><div class="val">{d['rr']}</div></div>
         """, unsafe_allow_html=True)
 
-    with col_video:
-        # REPRODUCCIÓN (Iframe ScreenPal)
+    with c_der:
         url_raw = RITMOS_DB.get(d['ritmo'])
         if url_raw:
             url_embed = obtener_url_embed(url_raw)
             components.html(
-                f"""
-                <body style="margin:0; background:black; overflow:hidden;">
+                f"""<body style="margin:0; background:black; overflow:hidden;">
                     <iframe src="{url_embed}" width="100%" height="700" frameborder="0" allow="autoplay"></iframe>
-                </body>
-                """,
+                </body>""",
                 height=700
             )
         else:
-            st.error("Video no encontrado")
+            st.error("Error: Video no configurado en Secrets.")
 
-    # --- AUDIO (JS) ---
+    # --- AUDIO (Script JS Invisible) ---
     if d['hr'] > 0 and d['vol'] > 0:
         intervalo = (60 / d['hr']) * 1000
         components.html(f"""
